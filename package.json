@@ -1,0 +1,32 @@
+{
+  "name": "freshrss-cli",
+  "version": "0.1.0",
+  "description": "CLI for FreshRSS over its Google Reader API",
+  "type": "module",
+  "bin": {
+    "freshrss": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "generate": "orval --config orval.config.ts",
+    "typecheck": "tsgo --noEmit",
+    "lint": "oxlint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "test": "bun test",
+    "build": "bun build --compile src/cli.ts --outfile dist/freshrss",
+    "install-bin": "BIN=\"${FRESHRSS_BIN_DIR:-$HOME/.local/bin}\"; mkdir -p \"$BIN\" && chmod +x src/cli.ts && ln -sfn \"$PWD/src/cli.ts\" \"$BIN/freshrss\" && echo \"installed: $BIN/freshrss -> $PWD/src/cli.ts\""
+  },
+  "dependencies": {
+    "commander": "15.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@typescript/native-preview": "^7.0.0-dev.20260707.2",
+    "lefthook": "^2.1.16",
+    "orval": "8.39.0",
+    "oxfmt": "^0.71.0",
+    "oxlint": "^1.86.0",
+    "typescript": "^7.0.2"
+  }
+}
