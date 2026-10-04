@@ -49,7 +49,8 @@ Exit codes: 0 success, 1 the server refused or failed (its message is on stderr)
 
 ```bash
 bun install
-bun test            # starts a throwaway FreshRSS in Docker
+bunx lefthook install   # format, lint and typecheck before each commit
+bun test                # starts a throwaway FreshRSS in Docker
 bun run typecheck
 bun run lint
 ```

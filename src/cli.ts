@@ -45,11 +45,16 @@ const feedRef = (value: string): string => (value.startsWith("feed/") ? value : 
 const json = (value: unknown): void => console.log(JSON.stringify(value));
 
 /** A write the server accepted (HTTP 200) is reported in the shape the design fixes. */
-const ok = (res: { data: unknown }): void => {
-  // HTTP 200 alone is not enough: the server's success body for a write is the literal `OK`.
+// HTTP 200 alone is not enough: the server's success body for a write is the literal `OK`.
+const accepted = (res: { status: number; data: unknown }): void => {
+  if (res.status !== 200) refusal(res);
   if (typeof res.data !== "string" || res.data.trim() !== "OK") {
     throw new ServerError(`the server answered 200 without OK: ${String(res.data).slice(0, 200)}`);
   }
+};
+
+const ok = (res: { status: number; data: unknown }): void => {
+  accepted(res);
   json({ ok: true });
 };
 
@@ -69,8 +74,9 @@ const readOpml = async (file: string): Promise<string> => {
 const MAX_OPML_BYTES = 1_048_576;
 
 // Subscribing and importing make the server fetch the feeds before it answers. An import sets PHP's time limit to
-// 300 s for reading the OPML and again for refreshing every feed (ImportService, feedController), so it can run for
-// 600 s; these two requests wait that long and a little more.
+// 300 s for reading the OPML and again for refreshing every feed (ImportService, feedController). That limit does not
+// count time waiting on the network on Linux, so a slow import can still run longer; past this the CLI stops waiting
+// and says the server may still finish.
 const FEED_FETCH_TIMEOUT_MS = 630_000;
 
 const setting = (flag: string | undefined, variable: string, missing: string): string => {
@@ -308,7 +314,15 @@ subs
         ...(options.title === undefined ? {} : { t: [options.title] }),
         ...(options.category === undefined ? {} : { a: labelId(options.category) }),
       });
-      if (edit.status !== 200) refusal(edit);
+      try {
+        accepted(edit);
+      } catch (e) {
+        // The feed is subscribed already; say which one, so the title or category can be set with `subs edit`.
+        const reason = e instanceof Error ? e.message : String(e);
+        throw new ServerError(
+          `subscribed as ${streamId}, but setting its title or category failed: ${reason}`,
+        );
+      }
     }
 
     const added = (await subscriptions()).find((sub) => sub.id === streamId);
@@ -545,7 +559,14 @@ const main = async (): Promise<void> => {
       return;
     }
     process.exitCode = error instanceof UsageError ? 2 : 1;
-    console.error(`freshrss: ${error instanceof Error ? error.message : String(error)}`);
+    // A timeout only ends the wait: the server keeps working on the request and may still complete it.
+    const message =
+      error instanceof Error && error.name === "TimeoutError"
+        ? "no answer in time; the server may still complete the request (check with subs list / entries)"
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    console.error(`freshrss: ${message}`);
   }
 };
 

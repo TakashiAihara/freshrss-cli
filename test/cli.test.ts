@@ -331,6 +331,11 @@ describe("usage errors", () => {
     ).toBe(2);
   });
 
+  test("an import file that cannot be read is a usage error", async () => {
+    expect((await cli(env, ["subs", "import", "/"])).code).toBe(2);
+    expect((await cli(env, ["subs", "import", "/no/such/file.opml"])).code).toBe(2);
+  });
+
   test("an OPML over the server's 1 MiB read limit is a usage error", async () => {
     const big = `<opml>${" ".repeat(1_048_577)}</opml>`;
     expect((await cli(env, ["subs", "import", "-"], { stdin: big })).code).toBe(2);

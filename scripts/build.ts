@@ -26,6 +26,7 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist);
 
 const sums: string[] = [];
+let ranOnHost = false;
 for (const t of TARGETS) {
   const stage = `${dist}${t.os}_${t.arch}/`;
   mkdirSync(stage);
@@ -37,6 +38,7 @@ for (const t of TARGETS) {
     if (reported !== version)
       throw new Error(`${t.os}_${t.arch} reports version ${reported}, expected ${version}`);
     console.log(`${t.os}_${t.arch} runs and reports ${reported}`);
+    ranOnHost = true;
   }
   await $`cp README.md LICENSE ${stage}`;
   const archive = `freshrss_${t.os}_${t.arch}.tar.gz`;
@@ -49,5 +51,15 @@ for (const t of TARGETS) {
   );
   console.log(archive);
 }
+if (!ranOnHost)
+  throw new Error(`no target matches this host (${HOST_OS}/${HOST_ARCH}), so no binary was run`);
+
+// install.sh is published with the release and piped into sh, so it is listed with the archives.
+await $`cp install.sh ${dist}install.sh`;
+sums.push(
+  `${createHash("sha256")
+    .update(readFileSync(`${dist}install.sh`))
+    .digest("hex")}  install.sh`,
+);
 sums.sort((a, b) => ((a.split("  ")[1] ?? "") < (b.split("  ")[1] ?? "") ? -1 : 1));
 writeFileSync(`${dist}checksums.txt`, `${sums.join("\n")}\n`);

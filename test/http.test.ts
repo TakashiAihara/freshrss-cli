@@ -17,6 +17,7 @@ beforeAll(() => {
         });
       if (path === "/html-json")
         return new Response('{"userName":"x"}', { headers: { "Content-Type": "text/html" } });
+      if (path === "/refused-json") return new Response("{not json", { status: 400 });
       if (path === "/proxy-page")
         return new Response("<html>login</html>", { headers: { "Content-Type": "text/html" } });
       return new Response("OK", { headers: { "Content-Type": "text/plain" } });
@@ -36,7 +37,13 @@ test("JSON sent as text/html is parsed", async () => {
 });
 
 test("a body that looks like JSON but does not parse is an error, not text", async () => {
-  expect(customFetch<Envelope>("/broken-json", {})).rejects.toThrow("malformed JSON");
+  await expect(customFetch<Envelope>("/broken-json", {})).rejects.toThrow("malformed JSON");
+});
+
+test("a refusal whose body looks like JSON but does not parse keeps its status and text", async () => {
+  const res = await customFetch<Envelope>("/refused-json", {});
+  expect(res.status).toBe(400);
+  expect(res.data).toBe("{not json");
 });
 
 test("plain text stays text", async () => {
