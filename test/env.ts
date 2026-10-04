@@ -3,7 +3,8 @@ import { spawn } from "bun";
 // One throwaway FreshRSS per test file, in Docker, plus a feed server on the host that the container can reach.
 // Nothing here points at a real instance.
 
-const IMAGE = "freshrss/freshrss:latest";
+// The version openapi/greader.yaml was checked against; CI pulls the same tag.
+export const IMAGE = "freshrss/freshrss:1.30.0";
 export const USER = "test";
 
 export const FEED_ITEMS = [
@@ -19,6 +20,14 @@ ${FEED_ITEMS.map(
 <description>Body of ${i.title}</description><pubDate>${new Date(i.date).toUTCString()}</pubDate></item>`,
 ).join("\n")}
 </channel></rss>`;
+
+let pending: (() => Promise<void>) | undefined;
+
+/** Stops the feed server and removes the container of the last start(), whether or not it returned. */
+export const stopAll = async (): Promise<void> => {
+  await pending?.();
+  pending = undefined;
+};
 
 export type Env = {
   base: string;
@@ -68,6 +77,9 @@ export const start = async (): Promise<Env> => {
     feeds.stop(true);
     await run(["docker", "rm", "-f", name]).catch(() => undefined);
   };
+  // Set before the container exists: when beforeAll times out, start() never returns, and afterAll still has to
+  // remove what it began.
+  pending = stop;
 
   try {
     await run([

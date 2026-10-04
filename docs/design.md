@@ -31,7 +31,9 @@ Stream options, shared by `entries` and `ids` (at most one of the first four; de
 - `--starred` → `user/-/state/com.google/starred`
 - `--stream <stream id>` → given as is
 - `--unread` / `--read` → `it=` the state; `--starred` already selects the stream
-- `-n, --count <n>` (default 20), `--oldest` (oldest first), `--since <time>` / `--until <time>` (ISO 8601 or Unix seconds), `-c, --continuation <c>`, `--all` (follow continuations until the end)
+- `-n, --count <n>` items per request (default 20; with `--all`, the page size), `--oldest` (oldest first), `-c, --continuation <c>`, `--all` (follow continuations until the end; every item is held in memory)
+- `--since <time>` / `--until <time>`: Unix seconds (digits only) or ISO 8601 (a date, read as UTC, or a date-time with `Z` or an offset). The server keeps an item for `--since` when it was published, added or last changed at or after the time, and for `--until` when it was published and last changed at or before it; neither is a pure publication-date filter
+- `--stream user/-/state/com.google/read` (or `unread`) is sent as the reading list with that state filter, because stream/contents does not serve those two states as streams
 
 | Command                                                      | API                                | Output                                                                                |
 | ------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------- |
@@ -55,6 +57,10 @@ Stream options, shared by `entries` and `ids` (at most one of the first four; de
 
 Item ids are accepted in both forms the server gives: decimal (`ids`) and `tag:google.com,2005:reader/item/<hex>` (`entries`).
 
+- `mark-all-read --before` bounds the time FreshRSS added each item (its id), not the publication date. A time at or before 1970 is refused: the server reads `ts=0` as no bound.
+- `subs add` finds the new subscription as the one not listed before, since the server may store another URL than the one given.
+- Not used by any command: `subscription/quickadd` (`subs add` does the same and also takes a title and category) and the `xt` exclude filter (`--unread` / `--read` cover it).
+
 ## Exit codes
 
 - 0: success
@@ -64,4 +70,5 @@ Item ids are accepted in both forms the server gives: decimal (`ids`) and `tag:g
 ## Tests
 
 - `test/` starts a throwaway FreshRSS (`freshrss/freshrss:latest` in Docker, API enabled, one user) and a local feed server, then runs the CLI as a subprocess against it. No test touches a real instance.
-- Every command in the table has at least one test that checks the server state afterwards (for writes) or the JSON shape (for reads).
+- Every command in the table runs in at least one test; writes are checked by reading the server state back.
+- `test/time.test.ts` and `test/next-tag.test.ts` test the time parser and the release tag numbering without a server.

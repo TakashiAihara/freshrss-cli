@@ -26,7 +26,7 @@ const sums: string[] = [];
 for (const t of TARGETS) {
   const stage = `${dist}${t.os}_${t.arch}/`;
   mkdirSync(stage);
-  await $`bun build src/cli.ts --compile --minify --target=${t.bun} --define FRESHRSS_VERSION=${JSON.stringify(version)} --outfile ${stage}freshrss`.quiet();
+  await $`bun build src/cli.ts --compile --minify --target=${t.bun} --define FRESHRSS_BUILD_VERSION=${JSON.stringify(version)} --outfile ${stage}freshrss`.quiet();
   await $`cp README.md LICENSE ${stage}`;
   const archive = `freshrss_${t.os}_${t.arch}.tar.gz`;
   await $`tar -czf ${dist}${archive} -C ${stage} freshrss README.md LICENSE`;

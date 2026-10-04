@@ -13,8 +13,8 @@ import { ServerError } from "./errors.ts";
 type Envelope = { data: unknown; status: number };
 
 /**
- * FreshRSS refuses with a short text body, sometimes on a JSON endpoint. Anything outside 200-299 is a refusal, never
- * a result, and the server's own text is what the user needs to see.
+ * FreshRSS refuses with a short text body, sometimes on a JSON endpoint. Every success it sends is HTTP 200, so any
+ * other status is a refusal, and the server's own text is what the user needs to see.
  *
  * The type annotation on the constant is what lets `if (res.status !== 200) refusal(res)` narrow the generated
  * response union; an arrow function with an inferred `never` return would not be recognised as terminating.
@@ -30,7 +30,7 @@ export type Credentials = { url: string; user: string; password: string };
 
 /**
  * Every run logs in with ClientLogin first and hands the `Auth` value to the shared session. The value never expires,
- * but caching it would put a credential on disk for a request that takes a few milliseconds.
+ * but caching it would put a credential on disk to save one request of a few tens of milliseconds.
  */
 export const login = async ({ url, user, password }: Credentials): Promise<void> => {
   configure({ base: url });
@@ -47,7 +47,7 @@ export const login = async ({ url, user, password }: Credentials): Promise<void>
 
 let tokenValue: string | undefined;
 
-/** Write operations need the action token; it is 57 characters plus a newline, and never changes for one user. */
+/** Write operations need the action token: 57 characters plus a newline, fixed until the API password changes. */
 export const token = async (): Promise<string> => {
   if (tokenValue === undefined) {
     const res = await getToken();

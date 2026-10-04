@@ -8,4 +8,4 @@ Rules for coding agents in this repository.
 - Do not add dependencies.
 - Never use `any`, `!` (non-null assertion), `@ts-ignore`, `@ts-expect-error`.
 - Call the API only through the generated functions in `src/generated/greader.ts`.
-- Done means `bun test`, `bun run typecheck` and `bun run lint` all exit 0. Paste the last lines of each.
+- Done means `bun test`, `bun run typecheck`, `bun run lint` and `bun run format:check` all exit 0, and `bun run generate` leaves `src/generated/` unchanged (CI checks each). Paste the last lines of each.

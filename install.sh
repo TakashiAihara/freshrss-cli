@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/TakashiAihara/freshrss-cli/main/install.sh | sh
 #
 # Environment:
-#   FRESHRSS_VERSION       tag to install (default: the latest release)
+#   FRESHRSS_INSTALL_VERSION tag to install (default: the latest release)
 #   FRESHRSS_INSTALL_DIR   where to put the binary (default: $HOME/.local/bin)
 #   FRESHRSS_RELEASE_BASE  where to fetch archives from, for a mirror
 set -eu
@@ -84,8 +84,8 @@ main() {
     os=$(detect_os)
     arch=$(detect_arch)
 
-    version=${FRESHRSS_VERSION:-$(latest_version)}
-    [ -n "$version" ] || die "could not determine the latest release; set FRESHRSS_VERSION"
+    version=${FRESHRSS_INSTALL_VERSION:-$(latest_version)}
+    [ -n "$version" ] || die "could not determine the latest release; set FRESHRSS_INSTALL_VERSION"
 
     name="freshrss_${os}_${arch}.tar.gz"
     tmp=$(mktemp -d)

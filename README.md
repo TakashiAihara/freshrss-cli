@@ -8,7 +8,7 @@ A command-line client for [FreshRSS](https://github.com/FreshRSS/FreshRSS) over 
 curl -fsSL https://raw.githubusercontent.com/TakashiAihara/freshrss-cli/main/install.sh | sh
 ```
 
-This puts a single `freshrss` binary (Linux or macOS, amd64 or arm64; no runtime needed) in `~/.local/bin`. `FRESHRSS_INSTALL_DIR` and `FRESHRSS_VERSION` change where and which release.
+This puts a single `freshrss` binary (Linux or macOS, amd64 or arm64; no runtime needed) in `~/.local/bin`. `FRESHRSS_INSTALL_DIR` and `FRESHRSS_INSTALL_VERSION` change where and which release.
 
 From a clone, with Bun: `bun install && bun run install-bin`.
 

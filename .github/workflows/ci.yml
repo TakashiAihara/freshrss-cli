@@ -44,7 +44,7 @@ jobs:
       - run: bun run format:check
 
       # The tests start a throwaway FreshRSS in Docker, which the runner has.
-      - run: docker pull -q freshrss/freshrss:latest
+      - run: docker pull -q freshrss/freshrss:1.30.0
 
       - run: bun test
 

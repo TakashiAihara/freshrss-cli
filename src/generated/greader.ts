@@ -378,7 +378,11 @@ export type MarkAllAsReadBody = {
   T: string;
   /** `feed/<numeric id>`, `user/-/label/<name>`, or a `user/-/state/...` stream. */
   s: string;
-  /** Only items older than this, in nanoseconds since the epoch (digits). `0` or absent = all. */
+  /**
+     * Only items whose id is at most this (digits). An item id is the time FreshRSS added the item, in
+     * microseconds since the epoch; greader.php's comment says nanoseconds, but EntryDAO compares
+     * `id <= ts`. `0` or absent = all.
+     */
   ts?: string;
 };
 

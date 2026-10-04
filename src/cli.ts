@@ -34,16 +34,16 @@ const READ = "user/-/state/com.google/read";
 const STARRED = "user/-/state/com.google/starred";
 const LABEL = "user/-/label/";
 
-/** `News` and `Later` are categories and tags for the user; the server only knows their stream id. */
+/** Categories and tags are named by the user and addressed by the server as `user/-/label/<name>`. */
 const labelId = (name: string): string => `${LABEL}${name}`;
 
 /** A feed is `feed/<numeric id>`; both `5` and `feed/5` are accepted wherever a feed is named. */
 const feedRef = (value: string): string => (value.startsWith("feed/") ? value : `feed/${value}`);
 
-/** The server wants JSON on stdout and nothing else. */
+/** stdout carries the JSON result and nothing else, so it can be piped into another program. */
 const json = (value: unknown): void => console.log(JSON.stringify(value));
 
-/** Every write answers `OK`; the CLI says so in the shape the design fixes. */
+/** A write the server accepted (HTTP 200) is reported in the shape the design fixes. */
 const ok = (): void => json({ ok: true });
 
 /** `-` means stdin; anything else is a file the user named. */
@@ -54,6 +54,9 @@ const readOpml = async (file: string): Promise<string> => {
   if (!(await handle.exists())) throw new UsageError(`no such file: ${file}`);
   return await handle.text();
 };
+
+// The server reads at most this much of the request body, so a longer OPML would be cut and refused as malformed.
+const MAX_OPML_BYTES = 1_048_576;
 
 const setting = (flag: string | undefined, variable: string, missing: string): string => {
   const value = flag ?? process.env[variable];
@@ -115,25 +118,27 @@ const addStreamOptions = (command: Command): Command =>
     .addOption(new Option("--unread", "only the unread items").conflicts(["read"]))
     .addOption(new Option("--read", "only the read items").conflicts(["unread"]))
     .addOption(
-      new Option("-n, --count <n>", "maximum number of items").default(20).argParser((value) => {
-        const count = Number(value);
-        if (!Number.isInteger(count) || count < 1) {
-          throw new UsageError(`--count must be a positive whole number, not ${value}`);
-        }
-        return count;
-      }),
+      new Option("-n, --count <n>", "items per request (with --all, the page size)")
+        .default(20)
+        .argParser((value) => {
+          const count = Number(value);
+          if (!Number.isInteger(count) || count < 1) {
+            throw new UsageError(`--count must be a positive whole number, not ${value}`);
+          }
+          return count;
+        }),
     )
     .option("--oldest", "oldest first")
     .addOption(
       new Option(
         "--since <time>",
-        "only items at or after this time (ISO 8601 or Unix seconds)",
+        "only items published, added or changed at or after this time (ISO 8601 or Unix seconds)",
       ).argParser((value) => unixSeconds(value, "--since")),
     )
     .addOption(
       new Option(
         "--until <time>",
-        "only items at or before this time (ISO 8601 or Unix seconds)",
+        "only items published and last changed at or before this time (ISO 8601 or Unix seconds)",
       ).argParser((value) => unixSeconds(value, "--until")),
     )
     .option("-c, --continuation <c>", "the continuation of a previous page")
@@ -154,7 +159,7 @@ const streamId = (options: StreamOptions): string => {
 const feedStreamId = (value: string): string => {
   const id = feedRef(value);
   if (!/^feed\/\d+$/.test(id)) throw new UsageError(`--feed is a numeric feed id, not ${value}`);
-  return value;
+  return id;
 };
 
 /** `--starred` already selects the starred stream, so the read state is what `it=` narrows. */
@@ -164,11 +169,19 @@ const stateOf = (options: StreamOptions): IncludeTargetParameter | undefined => 
   return undefined;
 };
 
+// stream/contents serves the read and unread states only as a filter on the reading list (stream/items/ids takes them
+// either way), so those two stream ids are turned into that filter.
+const STATE_STREAMS: Record<string, IncludeTargetParameter> = {
+  "user/-/state/com.google/read": IncludeTargetParameter["user/-/state/comgoogle/read"],
+  "user/-/state/com.google/unread": IncludeTargetParameter["user/-/state/comgoogle/unread"],
+};
+
 const streamParams = (options: StreamOptions, continuation?: string): GetStreamContentsParams => {
-  const state = stateOf(options);
+  const asked = streamId(options);
+  const state = stateOf(options) ?? STATE_STREAMS[asked];
   const next = continuation ?? options.continuation;
   return {
-    s: streamId(options),
+    s: STATE_STREAMS[asked] === undefined ? asked : READING_LIST,
     n: options.count,
     ...(options.oldest === true ? { r: OrderParameter.o } : {}),
     ...(options.since === undefined ? {} : { ot: options.since }),
@@ -204,10 +217,10 @@ const collect = async <T>(
 };
 
 // Set by `bun build --define` for a release binary; a source checkout reports the package version.
-declare const FRESHRSS_VERSION: string | undefined;
+declare const FRESHRSS_BUILD_VERSION: string | undefined;
 const version =
-  typeof FRESHRSS_VERSION === "string"
-    ? FRESHRSS_VERSION
+  typeof FRESHRSS_BUILD_VERSION === "string"
+    ? FRESHRSS_BUILD_VERSION
     : (await import("../package.json")).version;
 
 const program = new Command()
@@ -259,13 +272,16 @@ subs
       ...(options.category === undefined ? {} : { a: labelId(options.category) }),
     };
 
+    // The server answers only `OK` and may store another URL than the one given (a discovered feed, a redirect,
+    // https added), so the new subscription is the one that was not listed before.
+    const before = new Set((await subscriptions()).map((sub) => sub.id));
     const res = await editSubscription(body);
     if (res.status !== 200) refusal(res);
 
-    // The server only answers `OK`, so the subscription is read back by the URL it was asked for.
-    const added = (await subscriptions()).find((sub) => sub.url === url);
-    if (added === undefined)
-      throw new ServerError(`the server did not list a subscription for ${url}`);
+    const added = (await subscriptions()).find((sub) => !before.has(sub.id));
+    if (added === undefined) {
+      throw new ServerError(`the server answered OK but lists no new subscription for ${url}`);
+    }
     json(added);
   });
 
@@ -275,6 +291,9 @@ subs
   .option("--title <title>", "new title")
   .option("--category <name>", "category to move the feed to")
   .action(async (feed: string, options: { title?: string; category?: string }) => {
+    if (options.title === undefined && options.category === undefined) {
+      throw new UsageError("subs edit needs --title, --category or both");
+    }
     const body: EditSubscriptionBody = {
       s: [feedRef(feed)],
       ac: EditSubscriptionBodyAc.edit,
@@ -313,6 +332,12 @@ subs
   .description("import subscriptions from an OPML file, or from stdin with -")
   .action(async (file: string) => {
     const opml = await readOpml(file);
+    const size = new TextEncoder().encode(opml).length;
+    if (size > MAX_OPML_BYTES) {
+      throw new UsageError(
+        `the server reads at most ${MAX_OPML_BYTES} bytes of OPML; this is ${size}`,
+      );
+    }
     const res = await importSubscriptions(opml);
     if (res.status !== 200) refusal(res);
     ok();
@@ -389,8 +414,6 @@ program
   .command("get <item...>")
   .description("fetch items by id, in either id form")
   .action(async (ids: string[]) => {
-    if (ids.length === 0) throw new UsageError("get needs at least one item id");
-
     const res = await getStreamItemContents({ i: ids });
     if (res.status !== 200) refusal(res);
     json({ items: res.data.items });
@@ -458,13 +481,18 @@ program
     new Option(
       "--before <time>",
       "only items FreshRSS added before this time (ISO 8601 or Unix seconds)",
-    ).argParser((value) => unixSeconds(value, "--before")),
+    ).argParser((value) => {
+      const seconds = unixSeconds(value, "--before");
+      // ts=0 means "no bound" to the server, so a time at or before 1970 would mark the whole stream read.
+      if (seconds <= 0) throw new UsageError(`--before must be after 1970-01-01, not ${value}`);
+      return seconds;
+    }),
   )
   .action(async (stream: string, options: { before?: number }) => {
     const body: Parameters<typeof markAllAsRead>[0] = { T: await token(), s: stream };
     if (options.before !== undefined) {
       // The server compares `ts` with item ids, which are the microsecond time FreshRSS added each item (its source
-      // comment says nanoseconds; EntryDAO compares `id <= ts`). A double cannot hold that exactly, so BigInt.
+      // comment says nanoseconds; EntryDAO compares `id <= ts`).
       body.ts = (BigInt(options.before) * 1_000_000n).toString();
     }
 

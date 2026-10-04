@@ -1,6 +1,7 @@
 {
   "name": "freshrss-cli",
   "version": "0.1.0",
+  "private": true,
   "description": "CLI for FreshRSS over its Google Reader API",
   "bin": {
     "freshrss": "./src/cli.ts"

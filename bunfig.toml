@@ -1,0 +1,4 @@
+[test]
+# The tests share one FreshRSS container and each one runs the CLI as a subprocess; on a loaded host the 5 s default
+# fails them in a cascade.
+timeout = 60000

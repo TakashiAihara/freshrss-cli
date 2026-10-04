@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cli, type Env, FEED_ITEMS, ok, start, USER } from "./env";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { cli, type Env, FEED_ITEMS, ok, start, stopAll, USER } from "./env";
+import pkg from "../package.json";
 
 type Sub = { id: string; title: string; url: string; categories: { id: string; label: string }[] };
 type Item = { id: string; title: string; categories: string[]; origin: { streamId: string } };
@@ -19,7 +23,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await env?.stop();
+  await stopAll();
 });
 
 describe("configuration", () => {
@@ -46,6 +50,7 @@ describe("configuration", () => {
     const r = await cli(env, ["user"], { vars: { FRESHRSS_API_PASSWORD: "wrong" } });
     expect(r.code).toBe(1);
     expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("HTTP 401");
   });
 });
 
@@ -65,6 +70,13 @@ describe("reading and writing one user's data", () => {
 
     const listed = await subs();
     expect(listed.map((s) => s.id)).toEqual([added.id]);
+  });
+
+  test("subs add accepts the url in its feed/ form", async () => {
+    const other = env.feedUrl.replace("feed.xml", "other.xml");
+    const added = ok<Sub>(await cli(env, ["subs", "add", `feed/${other}`]));
+    expect(added.url).toBe(other);
+    ok(await cli(env, ["subs", "rm", added.id]));
   });
 
   test("subs add of an unreachable URL fails with exit 1", async () => {
@@ -119,6 +131,28 @@ describe("reading and writing one user's data", () => {
     expect(got.items.length).toBe(2);
   });
 
+  test("get takes the long id form that entries prints", async () => {
+    const [one] = (await entries("--feed", feedId, "-n", "1")).items;
+    if (!one) throw new Error("no item");
+    expect(one.id).toMatch(/^tag:google\.com,2005:reader\/item\/[0-9a-f]{16}$/);
+    expect(ok<Page>(await cli(env, ["get", one.id])).items.map((i) => i.title)).toEqual([
+      one.title,
+    ]);
+  });
+
+  test("entries --until a past time returns nothing, a future time returns everything", async () => {
+    // The bound is on the publication and the last change; the items changed when they were added, minutes ago.
+    expect((await entries("--feed", feedId, "--until", "2026-01-05")).items).toEqual([]);
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    expect((await entries("--feed", feedId, "--until", future)).items.length).toBe(3);
+  });
+
+  test("--stream takes a stream id as is, including the read and unread states", async () => {
+    expect((await entries("--stream", `feed/${feedId}`)).items.length).toBe(3);
+    expect((await entries("--stream", "user/-/state/com.google/unread")).items.length).toBe(3);
+    expect((await entries("--stream", "user/-/state/com.google/read")).items).toEqual([]);
+  });
+
   test("mark read / unread changes what --unread returns, with either id form", async () => {
     const [one] = (await entries("--feed", feedId, "--oldest", "-n", "1")).items;
     if (!one) throw new Error("no item");
@@ -163,10 +197,22 @@ describe("reading and writing one user's data", () => {
     expect((await subs())[0]?.categories[0]?.label).toBe("Daily");
   });
 
+  test("tags rm deletes a category and moves its feeds to the default category", async () => {
+    ok(await cli(env, ["subs", "edit", feedId, "--category", "Doomed"]));
+    ok(await cli(env, ["tags", "rm", "Doomed"]));
+    const tags = ok<Tag[]>(await cli(env, ["tags", "list"]));
+    expect(tags.some((t) => t.id === "user/-/label/Doomed")).toBe(false);
+    expect((await subs())[0]?.categories[0]?.label).not.toBe("Doomed");
+  });
+
   test("tags rm deletes a tag", async () => {
     ok(await cli(env, ["tags", "rm", "Later"]));
     const tags = ok<Tag[]>(await cli(env, ["tags", "list"]));
     expect(tags.some((t) => t.id === "user/-/label/Later")).toBe(false);
+  });
+
+  test("subs edit with neither --title nor --category is a usage error", async () => {
+    expect((await cli(env, ["subs", "edit", feedId])).code).toBe(2);
   });
 
   test("subs edit renames the feed and moves it to another category", async () => {
@@ -180,6 +226,15 @@ describe("reading and writing one user's data", () => {
     // The items were added when the feed was subscribed, minutes ago; their published dates are in January.
     ok(await cli(env, ["mark-all-read", `feed/${feedId}`, "--before", "2026-02-01T00:00:00Z"]));
     expect((await entries("--feed", feedId, "--unread")).items.length).toBe(3);
+  });
+
+  test("mark-all-read --before a time after the items were added marks them", async () => {
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+    ok(await cli(env, ["mark-all-read", `feed/${feedId}`, "--before", tomorrow]));
+    expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
+
+    const ids = ok<{ ids: string[] }>(await cli(env, ["ids", "--feed", feedId])).ids;
+    ok(await cli(env, ["mark", "unread", ...ids]));
   });
 
   test("mark-all-read marks every item of the stream read", async () => {
@@ -199,6 +254,21 @@ describe("reading and writing one user's data", () => {
     ok(await cli(env, ["subs", "import", "-"], { stdin: opml.stdout }));
     expect((await subs()).map((s) => s.url)).toEqual([env.feedUrl]);
   });
+
+  test("subs import reads a file", async () => {
+    const opml = (await cli(env, ["subs", "export"])).stdout;
+    const [s] = await subs();
+    ok(await cli(env, ["subs", "rm", s?.id ?? ""]));
+
+    const dir = await mkdtemp(join(tmpdir(), "freshrss-cli-test-"));
+    try {
+      await writeFile(join(dir, "subs.opml"), opml);
+      ok(await cli(env, ["subs", "import", join(dir, "subs.opml")]));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+    expect((await subs()).map((s) => s.url)).toEqual([env.feedUrl]);
+  });
 });
 
 describe("version", () => {
@@ -207,7 +277,7 @@ describe("version", () => {
       vars: { FRESHRSS_URL: undefined, FRESHRSS_API_PASSWORD: undefined },
     });
     expect(r.code).toBe(0);
-    expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+    expect(r.stdout.trim()).toBe(pkg.version);
   });
 });
 
@@ -220,6 +290,23 @@ describe("usage errors", () => {
   test("an unknown mark action is rejected (exit 2)", async () => {
     const r = await cli(env, ["mark", "explode", "1"]);
     expect(r.code).toBe(2);
+  });
+
+  test("mark-all-read --before 1970 or earlier is rejected (exit 2): the server reads ts=0 as no bound", async () => {
+    expect(
+      (await cli(env, ["mark-all-read", "user/-/state/com.google/reading-list", "--before", "0"]))
+        .code,
+    ).toBe(2);
+    expect(
+      (
+        await cli(env, [
+          "mark-all-read",
+          "user/-/state/com.google/reading-list",
+          "--before",
+          "1970-01-01",
+        ])
+      ).code,
+    ).toBe(2);
   });
 
   test("a time that is neither ISO 8601 nor Unix seconds is rejected (exit 2)", async () => {

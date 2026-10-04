@@ -23,11 +23,19 @@ const compare = (a: Version, b: Version) => {
   return 0;
 };
 
-// `first` is the version in package.json: the first automatic release, with no tag yet, is its first candidate.
-export function nextTag(tags: string[], first: string): string {
+// `pkg` is the version in package.json. Raising it starts the candidates of that version: with no tag yet, or when it
+// is above every tag, the next tag is its first candidate.
+export function nextTag(tags: string[], pkg: string): string {
   const versions = tags.map(parse).filter((v): v is Version => v !== undefined);
-  if (versions.length === 0) return `v${first}-rc.1`;
-  const [major, minor, patch, rc] = versions.reduce((a, b) => (compare(a, b) >= 0 ? a : b));
+  // As rc.0, the lowest candidate of that version: its own candidates are not below it.
+  const start = parse(`v${pkg}-rc.0`);
+  if (start === undefined) throw new Error(`package.json version ${pkg} is not X.Y.Z`);
+  const highest = versions.reduce<Version | undefined>(
+    (a, b) => (a === undefined || compare(b, a) > 0 ? b : a),
+    undefined,
+  );
+  if (highest === undefined || compare(start, highest) > 0) return `v${pkg}-rc.1`;
+  const [major, minor, patch, rc] = highest;
   return rc === Infinity
     ? `v${major}.${minor}.${patch + 1}-rc.1`
     : `v${major}.${minor}.${patch}-rc.${rc + 1}`;
