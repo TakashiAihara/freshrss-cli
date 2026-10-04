@@ -79,10 +79,22 @@ describe("reading and writing one user's data", () => {
     ok(await cli(env, ["subs", "rm", added.id]));
   });
 
-  test("subs add of an unreachable URL fails with exit 1", async () => {
+  test("subs add prints the subscription the server made, even when it stores another URL", async () => {
+    const page = env.feedUrl.replace("feed.xml", "page.html");
+    const added = ok<Sub>(await cli(env, ["subs", "add", page]));
+    expect(added.url).toBe(env.feedUrl.replace("feed.xml", "discovered.xml"));
+    ok(await cli(env, ["subs", "rm", added.id]));
+  });
+
+  test("subs add of an unreachable URL fails with exit 1 and the server's reason", async () => {
     const r = await cli(env, ["subs", "add", "http://127.0.0.1:1/none.xml"]);
     expect(r.code).toBe(1);
+    expect(r.stderr).toContain("did not subscribe");
     expect((await subs()).length).toBe(1);
+  });
+
+  test("subs add of something that is not an http(s) URL is a usage error", async () => {
+    expect((await cli(env, ["subs", "add", "5"])).code).toBe(2);
   });
 
   test("unread counts every item of the new feed", async () => {
@@ -128,7 +140,8 @@ describe("reading and writing one user's data", () => {
     for (const id of r.ids) expect(id).toMatch(/^\d+$/);
 
     const got = ok<Page>(await cli(env, ["get", ...r.ids.slice(0, 2)]));
-    expect(got.items.length).toBe(2);
+    const asked = ok<Page>(await cli(env, ["entries", "--feed", feedId])).items.slice(0, 2);
+    expect(titles(got)).toEqual(titles({ items: asked }));
   });
 
   test("get takes the long id form that entries prints", async () => {
@@ -199,13 +212,22 @@ describe("reading and writing one user's data", () => {
 
   test("tags rm deletes a category and moves its feeds to the default category", async () => {
     ok(await cli(env, ["subs", "edit", feedId, "--category", "Doomed"]));
+    expect(
+      ok<Tag[]>(await cli(env, ["tags", "list"])).some((t) => t.id === "user/-/label/Doomed"),
+    ).toBe(true);
     ok(await cli(env, ["tags", "rm", "Doomed"]));
     const tags = ok<Tag[]>(await cli(env, ["tags", "list"]));
     expect(tags.some((t) => t.id === "user/-/label/Doomed")).toBe(false);
-    expect((await subs())[0]?.categories[0]?.label).not.toBe("Doomed");
+    const listed = await subs();
+    expect(listed.length).toBe(1);
+    expect(listed[0]?.categories[0]?.label).toBeString();
+    expect(listed[0]?.categories[0]?.label).not.toBe("Doomed");
   });
 
   test("tags rm deletes a tag", async () => {
+    expect(
+      ok<Tag[]>(await cli(env, ["tags", "list"])).some((t) => t.id === "user/-/label/Later"),
+    ).toBe(true);
     ok(await cli(env, ["tags", "rm", "Later"]));
     const tags = ok<Tag[]>(await cli(env, ["tags", "list"]));
     expect(tags.some((t) => t.id === "user/-/label/Later")).toBe(false);
@@ -307,6 +329,11 @@ describe("usage errors", () => {
         ])
       ).code,
     ).toBe(2);
+  });
+
+  test("an OPML over the server's 1 MiB read limit is a usage error", async () => {
+    const big = `<opml>${" ".repeat(1_048_577)}</opml>`;
+    expect((await cli(env, ["subs", "import", "-"], { stdin: big })).code).toBe(2);
   });
 
   test("a time that is neither ISO 8601 nor Unix seconds is rejected (exit 2)", async () => {

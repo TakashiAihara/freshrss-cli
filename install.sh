@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install the freshrss CLI.
 #
-#   curl -fsSL https://raw.githubusercontent.com/TakashiAihara/freshrss-cli/main/install.sh | sh
+#   curl -fsSL https://github.com/TakashiAihara/freshrss-cli/releases/latest/download/install.sh | sh
 #
 # Environment:
 #   FRESHRSS_INSTALL_VERSION tag to install (default: the latest release)

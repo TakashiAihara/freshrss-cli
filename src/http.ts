@@ -2,9 +2,9 @@
 // timeout are set in one place and the generated code stays untouched.
 type Session = { base: string; auth?: string };
 
-// A request that has not answered by then is reported as a failure instead of leaving a script hanging. Long enough for
-// a subscribe, where the server fetches the feed before it answers.
-const TIMEOUT_MS = 60_000;
+// A request that has not answered by then is reported as a failure instead of leaving a script hanging. A caller
+// whose request makes the server fetch feeds (subscribe, import) passes its own, longer signal.
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 let session: Session | undefined;
 
@@ -13,14 +13,14 @@ export const configure = (next: Session): void => {
 };
 
 // Errors come back as text/plain even on JSON endpoints, and user-info and stream/items/ids send their JSON as
-// text/html, so neither the operation nor the content type alone says what the body is. A body that looks like JSON
-// but does not parse (an HTML page from a proxy) stays text, so the caller reports it instead of crashing.
+// text/html, so neither the operation nor the content type alone says what the body is. No text body the API sends
+// on success starts with `{` or `[`, so one that does and does not parse is a broken response, not text.
 const parseBody = (text: string, contentType: string): unknown => {
   if (!contentType.includes("json") && !/^\s*[[{]/.test(text)) return text;
   try {
     return JSON.parse(text);
   } catch {
-    return text;
+    throw new Error(`the server sent malformed JSON: ${text.slice(0, 200)}`);
   }
 };
 
@@ -33,7 +33,7 @@ export const customFetch = async <T>(path: string, init: RequestInit): Promise<T
   const res = await fetch(`${session.base}/api/greader.php${path}`, {
     ...init,
     headers,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: init.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
   });
   const text = await res.text();
   const data = text === "" ? text : parseBody(text, res.headers.get("content-type") ?? "");

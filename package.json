@@ -8,6 +8,7 @@
   },
   "type": "module",
   "scripts": {
+    "prepare": "lefthook install",
     "start": "bun run src/cli.ts",
     "generate": "orval --config orval.config.ts",
     "typecheck": "tsgo --noEmit",

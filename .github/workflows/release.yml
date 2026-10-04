@@ -118,6 +118,10 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # The same check as ci.yml: a .mise.toml bump that forgets this file would release with another Bun.
+      - name: bun version matches .mise.toml
+        run: grep -qx 'bun = "1.4.2"' .mise.toml
+
       # An automatic release has no tag yet, so it is created on the built
       # commit through the API. A tag this token creates starts no workflow, so
       # the tag-push trigger above does not release it a second time.
@@ -151,9 +155,9 @@ jobs:
         run: |
           set -eu
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt --clobber
+            gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt install.sh --clobber
           else
-            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt --verify-tag --generate-notes --latest
+            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt install.sh --verify-tag --generate-notes --latest
           fi
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

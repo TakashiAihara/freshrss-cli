@@ -8,6 +8,7 @@ import {
   EditSubscriptionBodyAc,
   editSubscription,
   editTag,
+  quickAddSubscription,
   exportSubscriptions,
   getStreamContents,
   getStreamItemContents,
@@ -25,7 +26,7 @@ import {
   type GetStreamContentsParams,
   type Item,
 } from "./generated/greader.ts";
-import { login, refusal, subscriptions, token } from "./api.ts";
+import { jsonOf, login, refusal, subscriptions, token } from "./api.ts";
 import { ServerError, UsageError } from "./errors.ts";
 import { unixSeconds } from "./time.ts";
 
@@ -44,19 +45,33 @@ const feedRef = (value: string): string => (value.startsWith("feed/") ? value : 
 const json = (value: unknown): void => console.log(JSON.stringify(value));
 
 /** A write the server accepted (HTTP 200) is reported in the shape the design fixes. */
-const ok = (): void => json({ ok: true });
+const ok = (res: { data: unknown }): void => {
+  // HTTP 200 alone is not enough: the server's success body for a write is the literal `OK`.
+  if (typeof res.data !== "string" || res.data.trim() !== "OK") {
+    throw new ServerError(`the server answered 200 without OK: ${String(res.data).slice(0, 200)}`);
+  }
+  json({ ok: true });
+};
 
 /** `-` means stdin; anything else is a file the user named. */
 const readOpml = async (file: string): Promise<string> => {
   if (file === "-") return await Bun.stdin.text();
 
-  const handle = Bun.file(file);
-  if (!(await handle.exists())) throw new UsageError(`no such file: ${file}`);
-  return await handle.text();
+  try {
+    return await Bun.file(file).text();
+  } catch (e) {
+    // A missing file, a directory or no permission: all the argument's fault, not the server's.
+    throw new UsageError(`cannot read ${file}: ${e instanceof Error ? e.message : String(e)}`);
+  }
 };
 
 // The server reads at most this much of the request body, so a longer OPML would be cut and refused as malformed.
 const MAX_OPML_BYTES = 1_048_576;
+
+// Subscribing and importing make the server fetch the feeds before it answers. An import sets PHP's time limit to
+// 300 s for reading the OPML and again for refreshing every feed (ImportService, feedController), so it can run for
+// 600 s; these two requests wait that long and a little more.
+const FEED_FETCH_TIMEOUT_MS = 630_000;
 
 const setting = (flag: string | undefined, variable: string, missing: string): string => {
   const value = flag ?? process.env[variable];
@@ -171,17 +186,18 @@ const stateOf = (options: StreamOptions): IncludeTargetParameter | undefined => 
 
 // stream/contents serves the read and unread states only as a filter on the reading list (stream/items/ids takes them
 // either way), so those two stream ids are turned into that filter.
-const STATE_STREAMS: Record<string, IncludeTargetParameter> = {
-  "user/-/state/com.google/read": IncludeTargetParameter["user/-/state/comgoogle/read"],
-  "user/-/state/com.google/unread": IncludeTargetParameter["user/-/state/comgoogle/unread"],
-};
+// A Map, not an object literal: `--stream toString` must not find an inherited property.
+const STATE_STREAMS = new Map<string, IncludeTargetParameter>([
+  ["user/-/state/com.google/read", IncludeTargetParameter["user/-/state/comgoogle/read"]],
+  ["user/-/state/com.google/unread", IncludeTargetParameter["user/-/state/comgoogle/unread"]],
+]);
 
 const streamParams = (options: StreamOptions, continuation?: string): GetStreamContentsParams => {
   const asked = streamId(options);
-  const state = stateOf(options) ?? STATE_STREAMS[asked];
+  const state = stateOf(options) ?? STATE_STREAMS.get(asked);
   const next = continuation ?? options.continuation;
   return {
-    s: STATE_STREAMS[asked] === undefined ? asked : READING_LIST,
+    s: STATE_STREAMS.has(asked) ? READING_LIST : asked,
     n: options.count,
     ...(options.oldest === true ? { r: OrderParameter.o } : {}),
     ...(options.since === undefined ? {} : { ot: options.since }),
@@ -211,7 +227,9 @@ const collect = async <T>(
     const more = page.continuation;
     if (options.all !== true) return more === undefined ? { items } : { items, continuation: more };
     // A continuation that does not move forward would never end.
-    if (more === undefined || more === continuation) return { items };
+    // An empty page ends it too: a continuation that does not move forward, or one that keeps coming with no items,
+    // would never end.
+    if (more === undefined || more === continuation || page.items.length === 0) return { items };
     continuation = more;
   }
 };
@@ -247,7 +265,7 @@ program
   .action(async () => {
     const res = await getUserInfo();
     if (res.status !== 200) refusal(res);
-    json(res.data);
+    json(jsonOf(res.data));
   });
 
 const subs = program.command("subs").description("subscriptions");
@@ -265,23 +283,37 @@ subs
   .option("--title <title>", "title for the subscription")
   .option("--category <name>", "category to file the feed in")
   .action(async (url: string, options: { title?: string; category?: string }) => {
-    const body: EditSubscriptionBody = {
-      s: [feedRef(url)],
-      ac: EditSubscriptionBodyAc.subscribe,
-      ...(options.title === undefined ? {} : { t: [options.title] }),
-      ...(options.category === undefined ? {} : { a: labelId(options.category) }),
-    };
+    const plain = url.replace(/^feed\//, "");
+    if (!/^https?:\/\//.test(plain))
+      throw new UsageError(`subs add takes an http(s) URL, not ${url}`);
 
-    // The server answers only `OK` and may store another URL than the one given (a discovered feed, a redirect,
-    // https added), so the new subscription is the one that was not listed before.
-    const before = new Set((await subscriptions()).map((sub) => sub.id));
-    const res = await editSubscription(body);
+    // quickadd answers with the new feed's id, which identifies it even when the server stores another URL than the
+    // one given (a discovered feed, a redirect) and when another client subscribes at the same time. subscription/edit
+    // would take the title and category in the same request but answers only `OK`.
+    const res = await quickAddSubscription(
+      { quickadd: plain },
+      { signal: AbortSignal.timeout(FEED_FETCH_TIMEOUT_MS) },
+    );
     if (res.status !== 200) refusal(res);
+    const { streamId, error } = jsonOf(res.data);
+    if (streamId === undefined)
+      throw new ServerError(
+        `the server did not subscribe to ${url}: ${error ?? "no reason given"}`,
+      );
 
-    const added = (await subscriptions()).find((sub) => !before.has(sub.id));
-    if (added === undefined) {
-      throw new ServerError(`the server answered OK but lists no new subscription for ${url}`);
+    if (options.title !== undefined || options.category !== undefined) {
+      const edit = await editSubscription({
+        s: [streamId],
+        ac: EditSubscriptionBodyAc.edit,
+        ...(options.title === undefined ? {} : { t: [options.title] }),
+        ...(options.category === undefined ? {} : { a: labelId(options.category) }),
+      });
+      if (edit.status !== 200) refusal(edit);
     }
+
+    const added = (await subscriptions()).find((sub) => sub.id === streamId);
+    if (added === undefined)
+      throw new ServerError(`the server subscribed to ${url} as ${streamId} but does not list it`);
     json(added);
   });
 
@@ -303,7 +335,7 @@ subs
 
     const res = await editSubscription(body);
     if (res.status !== 200) refusal(res);
-    ok();
+    ok(res);
   });
 
 subs
@@ -315,7 +347,7 @@ subs
       ac: EditSubscriptionBodyAc.unsubscribe,
     });
     if (res.status !== 200) refusal(res);
-    ok();
+    ok(res);
   });
 
 subs
@@ -338,9 +370,11 @@ subs
         `the server reads at most ${MAX_OPML_BYTES} bytes of OPML; this is ${size}`,
       );
     }
-    const res = await importSubscriptions(opml);
+    const res = await importSubscriptions(opml, {
+      signal: AbortSignal.timeout(FEED_FETCH_TIMEOUT_MS),
+    });
     if (res.status !== 200) refusal(res);
-    ok();
+    ok(res);
   });
 
 const tags = program.command("tags").description("categories and tags");
@@ -351,7 +385,7 @@ tags
   .action(async () => {
     const res = await listTags({ output: OutputParameter.json });
     if (res.status !== 200) refusal(res);
-    json(res.data.tags);
+    json(jsonOf(res.data).tags);
   });
 
 tags
@@ -360,7 +394,7 @@ tags
   .action(async (oldName: string, newName: string) => {
     const res = await renameTag({ T: await token(), s: labelId(oldName), dest: labelId(newName) });
     if (res.status !== 200) refusal(res);
-    ok();
+    ok(res);
   });
 
 tags
@@ -369,7 +403,7 @@ tags
   .action(async (name: string) => {
     const res = await disableTag({ T: await token(), s: labelId(name) });
     if (res.status !== 200) refusal(res);
-    ok();
+    ok(res);
   });
 
 program
@@ -378,7 +412,7 @@ program
   .action(async () => {
     const res = await getUnreadCount({ output: OutputParameter.json });
     if (res.status !== 200) refusal(res);
-    json(res.data);
+    json(jsonOf(res.data));
   });
 
 addStreamOptions(
@@ -387,7 +421,7 @@ addStreamOptions(
   const page = await collect<Item>(options, async (params) => {
     const res = await getStreamContents(params);
     if (res.status !== 200) refusal(res);
-    return res.data;
+    return jsonOf(res.data);
   });
   json(page);
 });
@@ -397,7 +431,7 @@ addStreamOptions(program.command("ids").description("the ids of the items of one
     const page = await collect<string>(options, async (params) => {
       const res = await getStreamItemIds(params);
       if (res.status !== 200) refusal(res);
-      const { itemRefs, continuation } = res.data;
+      const { itemRefs, continuation } = jsonOf(res.data);
       return {
         items: itemRefs.map((ref) => ref.id),
         ...(continuation === undefined ? {} : { continuation }),
@@ -416,7 +450,7 @@ program
   .action(async (ids: string[]) => {
     const res = await getStreamItemContents({ i: ids });
     if (res.status !== 200) refusal(res);
-    json({ items: res.data.items });
+    json({ items: jsonOf(res.data).items });
   });
 
 program
@@ -471,7 +505,7 @@ program
       ...(remove === undefined ? {} : { r: remove }),
     });
     if (res.status !== 200) refusal(res);
-    ok();
+    ok(res);
   });
 
 program
@@ -498,7 +532,7 @@ program
 
     const res = await markAllAsRead(body);
     if (res.status !== 200) refusal(res);
-    ok();
+    ok(res);
   });
 
 const main = async (): Promise<void> => {

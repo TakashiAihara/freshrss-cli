@@ -35,40 +35,40 @@ Stream options, shared by `entries` and `ids` (at most one of the first four; de
 - `--since <time>` / `--until <time>`: Unix seconds (digits only) or ISO 8601 (a date, read as UTC, or a date-time with `Z` or an offset). The server keeps an item for `--since` when it was published, added or last changed at or after the time, and for `--until` when it was published and last changed at or before it; neither is a pure publication-date filter
 - `--stream user/-/state/com.google/read` (or `unread`) is sent as the reading list with that state filter, because stream/contents does not serve those two states as streams
 
-| Command                                                      | API                                | Output                                                                                |
-| ------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------- |
-| `freshrss user`                                              | user-info                          | the user object                                                                       |
-| `freshrss subs list`                                         | subscription/list                  | array of subscriptions                                                                |
-| `freshrss subs add <url> [--title t] [--category name]`      | subscription/edit `ac=subscribe`   | the new subscription (looked up by URL afterwards)                                    |
-| `freshrss subs edit <feed id> [--title t] [--category name]` | subscription/edit `ac=edit`        | `{"ok":true}`                                                                         |
-| `freshrss subs rm <feed id>...`                              | subscription/edit `ac=unsubscribe` | `{"ok":true}`                                                                         |
-| `freshrss subs export`                                       | subscription/export                | OPML on stdout                                                                        |
-| `freshrss subs import <file or ->`                           | subscription/import                | `{"ok":true}`                                                                         |
-| `freshrss tags list`                                         | tag/list                           | array of tags                                                                         |
-| `freshrss tags rename <old> <new>`                           | rename-tag                         | `{"ok":true}`                                                                         |
-| `freshrss tags rm <name>`                                    | disable-tag                        | `{"ok":true}`                                                                         |
-| `freshrss unread`                                            | unread-count                       | `{"max": n, "unreadcounts": [...]}`                                                   |
-| `freshrss entries [stream options]`                          | stream/contents                    | `{"items": [...], "continuation": "..."}`; no `continuation` when the end was reached |
-| `freshrss ids [stream options]`                              | stream/items/ids                   | `{"ids": ["..."], "continuation": "..."}`                                             |
-| `freshrss get <item id>...`                                  | stream/items/contents              | `{"items": [...]}`                                                                    |
-| `freshrss mark read\|unread\|star\|unstar <item id>...`      | edit-tag                           | `{"ok":true}`                                                                         |
-| `freshrss mark tag\|untag <tag name> <item id>...`           | edit-tag                           | `{"ok":true}`                                                                         |
-| `freshrss mark-all-read <stream id> [--before <time>]`       | mark-all-as-read                   | `{"ok":true}`                                                                         |
+| Command                                                      | API                                                                          | Output                                                                                |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `freshrss user`                                              | user-info                                                                    | the user object                                                                       |
+| `freshrss subs list`                                         | subscription/list                                                            | array of subscriptions                                                                |
+| `freshrss subs add <url> [--title t] [--category name]`      | subscription/quickadd, then subscription/edit `ac=edit` for title / category | the new subscription                                                                  |
+| `freshrss subs edit <feed id> [--title t] [--category name]` | subscription/edit `ac=edit`                                                  | `{"ok":true}`                                                                         |
+| `freshrss subs rm <feed id>...`                              | subscription/edit `ac=unsubscribe`                                           | `{"ok":true}`                                                                         |
+| `freshrss subs export`                                       | subscription/export                                                          | OPML on stdout                                                                        |
+| `freshrss subs import <file or ->`                           | subscription/import                                                          | `{"ok":true}`                                                                         |
+| `freshrss tags list`                                         | tag/list                                                                     | array of tags                                                                         |
+| `freshrss tags rename <old> <new>`                           | rename-tag                                                                   | `{"ok":true}`                                                                         |
+| `freshrss tags rm <name>`                                    | disable-tag                                                                  | `{"ok":true}`                                                                         |
+| `freshrss unread`                                            | unread-count                                                                 | `{"max": n, "unreadcounts": [...]}`                                                   |
+| `freshrss entries [stream options]`                          | stream/contents                                                              | `{"items": [...], "continuation": "..."}`; no `continuation` when the end was reached |
+| `freshrss ids [stream options]`                              | stream/items/ids                                                             | `{"ids": ["..."], "continuation": "..."}`                                             |
+| `freshrss get <item id>...`                                  | stream/items/contents                                                        | `{"items": [...]}`                                                                    |
+| `freshrss mark read\|unread\|star\|unstar <item id>...`      | edit-tag                                                                     | `{"ok":true}`                                                                         |
+| `freshrss mark tag\|untag <tag name> <item id>...`           | edit-tag                                                                     | `{"ok":true}`                                                                         |
+| `freshrss mark-all-read <stream id> [--before <time>]`       | mark-all-as-read                                                             | `{"ok":true}`                                                                         |
 
 Item ids are accepted in both forms the server gives: decimal (`ids`) and `tag:google.com,2005:reader/item/<hex>` (`entries`).
 
 - `mark-all-read --before` bounds the time FreshRSS added each item (its id), not the publication date. A time at or before 1970 is refused: the server reads `ts=0` as no bound.
-- `subs add` finds the new subscription as the one not listed before, since the server may store another URL than the one given.
-- Not used by any command: `subscription/quickadd` (`subs add` does the same and also takes a title and category) and the `xt` exclude filter (`--unread` / `--read` cover it).
+- `subs add` uses quickadd because it answers with the new feed's id: the server may store another URL than the one given (a discovered feed, a redirect), and another client may subscribe at the same time. A URL that is already subscribed is refused by the server and exits 1 with its reason.
+- Not used by any command: `subscription/edit ac=subscribe` (quickadd covers it and returns the id) and the `xt` exclude filter (`--unread` / `--read` cover it).
 
 ## Exit codes
 
 - 0: success
-- 1: the server refused or failed (non-2xx, or `quickadd`-style error body); the server's text is on stderr
+- 1: the server refused or failed (any status but 200, a write whose body is not `OK`, a quickadd error, or a body that is not the JSON expected); the server's text is on stderr. A request times out after 60 s, or 630 s for `subs add` and `subs import`, which make the server fetch feeds first
 - 2: usage or configuration error (missing URL / user / API password, bad arguments)
 
 ## Tests
 
-- `test/` starts a throwaway FreshRSS (`freshrss/freshrss:latest` in Docker, API enabled, one user) and a local feed server, then runs the CLI as a subprocess against it. No test touches a real instance.
+- `test/` starts a throwaway FreshRSS (`freshrss/freshrss:1.30.0` in Docker, API enabled, one user) and a local feed server, then runs the CLI as a subprocess against it. No test touches a real instance.
 - Every command in the table runs in at least one test; writes are checked by reading the server state back.
 - `test/time.test.ts` and `test/next-tag.test.ts` test the time parser and the release tag numbering without a server.

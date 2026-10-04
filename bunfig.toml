@@ -1,4 +1,4 @@
 [test]
 # The tests share one FreshRSS container and each one runs the CLI as a subprocess; on a loaded host the 5 s default
-# fails them in a cascade.
-timeout = 60000
+# fails them in a cascade. Above the CLI's own 60 s request timeout, so a hung request shows the CLI's error.
+timeout = 120000

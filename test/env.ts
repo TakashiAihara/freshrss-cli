@@ -64,8 +64,14 @@ export const start = async (): Promise<Env> => {
   const feeds = Bun.serve({
     hostname: "0.0.0.0",
     port: 0,
-    fetch: (): Response =>
-      new Response(rss(feedBase), { headers: { "Content-Type": "application/rss+xml" } }),
+    // An HTML page that only links to its feed, for the server's feed discovery; every other path is the feed.
+    fetch: (req: Request): Response =>
+      new URL(req.url).pathname === "/page.html"
+        ? new Response(
+            `<html><head><link rel="alternate" type="application/rss+xml" href="${feedBase}/discovered.xml"></head><body></body></html>`,
+            { headers: { "Content-Type": "text/html" } },
+          )
+        : new Response(rss(feedBase), { headers: { "Content-Type": "application/rss+xml" } }),
   });
   feedBase = `http://${gateway}:${feeds.port}`;
 

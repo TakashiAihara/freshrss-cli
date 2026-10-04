@@ -5,7 +5,7 @@ A command-line client for [FreshRSS](https://github.com/FreshRSS/FreshRSS) over 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TakashiAihara/freshrss-cli/main/install.sh | sh
+curl -fsSL https://github.com/TakashiAihara/freshrss-cli/releases/latest/download/install.sh | sh
 ```
 
 This puts a single `freshrss` binary (Linux or macOS, amd64 or arm64; no runtime needed) in `~/.local/bin`. `FRESHRSS_INSTALL_DIR` and `FRESHRSS_INSTALL_VERSION` change where and which release.
@@ -22,7 +22,7 @@ export FRESHRSS_USER=alice
 export FRESHRSS_API_PASSWORD=...                    # read from the environment only
 ```
 
-`--url` and `--user` override the first two.
+`--url` and `--user` override the first two; they go before the command (`freshrss --url ... subs list`).
 
 ## Use
 

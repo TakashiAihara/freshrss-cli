@@ -16,6 +16,9 @@ const TARGETS = [
   { os: "darwin", arch: "arm64", bun: "bun-darwin-arm64" },
 ];
 
+const HOST_OS = process.platform;
+const HOST_ARCH = process.arch === "x64" ? "amd64" : process.arch;
+
 // The tag is vX.Y.Z; the binary reports X.Y.Z.
 const version = (process.argv[2] ?? "dev").replace(/^v(?=\d)/, "");
 const dist = new URL("../dist/", import.meta.url).pathname;
@@ -27,6 +30,14 @@ for (const t of TARGETS) {
   const stage = `${dist}${t.os}_${t.arch}/`;
   mkdirSync(stage);
   await $`bun build src/cli.ts --compile --minify --target=${t.bun} --define FRESHRSS_BUILD_VERSION=${JSON.stringify(version)} --outfile ${stage}freshrss`.quiet();
+  // The one target this machine can run is run before it is packed: a binary that does not start (a bundling change
+  // that breaks the version constant, say) must stop the build, not reach install.sh on a user's machine.
+  if (t.os === HOST_OS && t.arch === HOST_ARCH) {
+    const reported = (await $`${stage}freshrss --version`.text()).trim();
+    if (reported !== version)
+      throw new Error(`${t.os}_${t.arch} reports version ${reported}, expected ${version}`);
+    console.log(`${t.os}_${t.arch} runs and reports ${reported}`);
+  }
   await $`cp README.md LICENSE ${stage}`;
   const archive = `freshrss_${t.os}_${t.arch}.tar.gz`;
   await $`tar -czf ${dist}${archive} -C ${stage} freshrss README.md LICENSE`;

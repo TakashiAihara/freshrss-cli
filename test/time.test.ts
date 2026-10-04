@@ -13,7 +13,7 @@ test("an ISO date is UTC midnight", () => {
 });
 
 test("an ISO date-time needs Z or an offset", () => {
-  expect(unixSeconds("2026-10-04T09:00:00+09:00", "--x")).toBe(Date.UTC(2026, 9, 4) / 1000);
+  expect(unixSeconds("2026-10-04T10:30:00+09:00", "--x")).toBe(Date.UTC(2026, 9, 4, 1, 30) / 1000);
   expect(unixSeconds("2026-10-04T00:00Z", "--x")).toBe(Date.UTC(2026, 9, 4) / 1000);
   expect(() => unixSeconds("2026-10-04T09:00:00", "--x")).toThrow(UsageError);
 });

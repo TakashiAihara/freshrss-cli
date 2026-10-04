@@ -26,6 +26,17 @@ export const refusal: (res: Envelope) => never = (res) => {
   );
 };
 
+/**
+ * The body of a JSON answer. A 200 whose body is not JSON (an HTML page from a proxy in front of the server) is a
+ * failure, not an empty result.
+ */
+export const jsonOf = <T>(data: T): T => {
+  if (typeof data !== "object" || data === null) {
+    throw new ServerError(`expected JSON from the server, got: ${String(data).slice(0, 200)}`);
+  }
+  return data;
+};
+
 export type Credentials = { url: string; user: string; password: string };
 
 /**
@@ -61,5 +72,5 @@ export const token = async (): Promise<string> => {
 export const subscriptions = async (): Promise<Subscription[]> => {
   const res = await listSubscriptions({ output: OutputParameter.json });
   if (res.status !== 200) refusal(res);
-  return res.data.subscriptions;
+  return jsonOf(res.data).subscriptions;
 };
