@@ -4,7 +4,8 @@
  * FreshRSS Google Reader API
  * Written by hand from FreshRSS `p/api/greader.php` (branch edge, commit 4e5e142, 2026-10-03), because FreshRSS
  * publishes no OpenAPI document. The PHP file is the only exact specification; when FreshRSS changes it, diff that
- * file and update this document.
+ * file and update this document. The request and response shapes are the same in release 1.30.0, the version the
+ * tests run against.
  *
  * Conventions the server follows everywhere:
  * - Every POST body is `application/x-www-form-urlencoded`. A key may repeat (`i=1&i=2`) to send a list.
@@ -664,7 +665,9 @@ export const getImportSubscriptionsUrl = () => {
 }
 
 /**
- * Imports an OPML document (the request body as is, up to 1 MiB) and refreshes the feeds.
+ * Imports an OPML document (the request body as is, up to 1 MiB) and refreshes the feeds. The server reads the
+ * raw body whatever its content type; it is declared text/plain because Orval's fetch client sends only a
+ * text/plain string body unchanged (an application/xml string would be JSON-encoded).
  */
 export const importSubscriptions = async (importSubscriptionsBody: string, options?: Parameters<typeof customFetch>[1]): Promise<importSubscriptionsResponse> => {
 
@@ -686,8 +689,8 @@ return customFetch<importSubscriptionsResponse>(getImportSubscriptionsUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/xml', ...getHeaders(options?.headers) },
-    body: JSON.stringify(importSubscriptionsBody)
+    headers: { 'Content-Type': 'text/plain', ...getHeaders(options?.headers) },
+    body: importSubscriptionsBody
   }
 );}
 

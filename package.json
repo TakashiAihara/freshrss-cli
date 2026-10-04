@@ -2,10 +2,10 @@
   "name": "freshrss-cli",
   "version": "0.1.0",
   "description": "CLI for FreshRSS over its Google Reader API",
-  "type": "module",
   "bin": {
     "freshrss": "./src/cli.ts"
   },
+  "type": "module",
   "scripts": {
     "start": "bun run src/cli.ts",
     "generate": "orval --config orval.config.ts",

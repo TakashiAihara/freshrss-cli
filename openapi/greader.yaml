@@ -170,7 +170,19 @@ components:
           type: string
     Item:
       type: object
-      required: [id, crawlTimeMsec, timestampUsec, published, title, canonical, alternate, categories, origin, summary]
+      required:
+        [
+          id,
+          crawlTimeMsec,
+          timestampUsec,
+          published,
+          title,
+          canonical,
+          alternate,
+          categories,
+          origin,
+          summary,
+        ]
       properties:
         id:
           type: string
@@ -302,7 +314,7 @@ paths:
       operationId: getUserInfo
       responses:
         "200":
-          description: The authenticated user.
+          description: The authenticated user. The server labels this JSON as text/html.
           content:
             application/json:
               schema:
@@ -368,11 +380,14 @@ paths:
   /reader/api/0/subscription/import:
     post:
       operationId: importSubscriptions
-      description: Imports an OPML document (the request body as is, up to 1 MiB) and refreshes the feeds.
+      description: |
+        Imports an OPML document (the request body as is, up to 1 MiB) and refreshes the feeds. The server reads the
+        raw body whatever its content type; it is declared text/plain because Orval's fetch client sends only a
+        text/plain string body unchanged (an application/xml string would be JSON-encoded).
       requestBody:
         required: true
         content:
-          application/xml:
+          text/plain:
             schema:
               type: string
       responses:
@@ -513,7 +528,7 @@ paths:
         - $ref: "#/components/parameters/continuation"
       responses:
         "200":
-          description: One page of item ids (decimal).
+          description: One page of item ids (decimal). The server labels this JSON as text/html.
           content:
             application/json:
               schema:
@@ -672,7 +687,10 @@ paths:
                   description: "`feed/<numeric id>`, `user/-/label/<name>`, or a `user/-/state/...` stream."
                 ts:
                   type: string
-                  description: Only items older than this, in nanoseconds since the epoch (digits). `0` or absent = all.
+                  description: |
+                    Only items whose id is at most this (digits). An item id is the time FreshRSS added the item, in
+                    microseconds since the epoch; greader.php's comment says nanoseconds, but EntryDAO compares
+                    `id <= ts`. `0` or absent = all.
       responses:
         "200":
           $ref: "#/components/responses/ok"

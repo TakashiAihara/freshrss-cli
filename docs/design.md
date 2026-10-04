@@ -13,11 +13,11 @@
 
 ## Configuration
 
-| Value | Flag | Environment |
-|---|---|---|
-| Server base URL (without `/api/greader.php`) | `--url` | `FRESHRSS_URL` |
-| User name | `--user` | `FRESHRSS_USER` |
-| API password (Profile → API management; not the web password) | none | `FRESHRSS_API_PASSWORD` |
+| Value                                                         | Flag     | Environment             |
+| ------------------------------------------------------------- | -------- | ----------------------- |
+| Server base URL (without `/api/greader.php`)                  | `--url`  | `FRESHRSS_URL`          |
+| User name                                                     | `--user` | `FRESHRSS_USER`         |
+| API password (Profile → API management; not the web password) | none     | `FRESHRSS_API_PASSWORD` |
 
 - The API password is read only from the environment, so it never appears in the process list or shell history.
 - Every run logs in with ClientLogin first. The returned Auth value does not expire, but caching it would put a credential on disk for a request that takes a few milliseconds.
@@ -33,25 +33,25 @@ Stream options, shared by `entries` and `ids` (at most one of the first four; de
 - `--unread` / `--read` → `it=` the state; `--starred` already selects the stream
 - `-n, --count <n>` (default 20), `--oldest` (oldest first), `--since <time>` / `--until <time>` (ISO 8601 or Unix seconds), `-c, --continuation <c>`, `--all` (follow continuations until the end)
 
-| Command | API | Output |
-|---|---|---|
-| `freshrss user` | user-info | the user object |
-| `freshrss subs list` | subscription/list | array of subscriptions |
-| `freshrss subs add <url> [--title t] [--category name]` | subscription/edit `ac=subscribe` | the new subscription (looked up by URL afterwards) |
-| `freshrss subs edit <feed id> [--title t] [--category name]` | subscription/edit `ac=edit` | `{"ok":true}` |
-| `freshrss subs rm <feed id>...` | subscription/edit `ac=unsubscribe` | `{"ok":true}` |
-| `freshrss subs export` | subscription/export | OPML on stdout |
-| `freshrss subs import <file or ->` | subscription/import | `{"ok":true}` |
-| `freshrss tags list` | tag/list | array of tags |
-| `freshrss tags rename <old> <new>` | rename-tag | `{"ok":true}` |
-| `freshrss tags rm <name>` | disable-tag | `{"ok":true}` |
-| `freshrss unread` | unread-count | `{"max": n, "unreadcounts": [...]}` |
-| `freshrss entries [stream options]` | stream/contents | `{"items": [...], "continuation": "..."}`; no `continuation` when the end was reached |
-| `freshrss ids [stream options]` | stream/items/ids | `{"ids": ["..."], "continuation": "..."}` |
-| `freshrss get <item id>...` | stream/items/contents | `{"items": [...]}` |
-| `freshrss mark read\|unread\|star\|unstar <item id>...` | edit-tag | `{"ok":true}` |
-| `freshrss mark tag\|untag <tag name> <item id>...` | edit-tag | `{"ok":true}` |
-| `freshrss mark-all-read <stream id> [--before <time>]` | mark-all-as-read | `{"ok":true}` |
+| Command                                                      | API                                | Output                                                                                |
+| ------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `freshrss user`                                              | user-info                          | the user object                                                                       |
+| `freshrss subs list`                                         | subscription/list                  | array of subscriptions                                                                |
+| `freshrss subs add <url> [--title t] [--category name]`      | subscription/edit `ac=subscribe`   | the new subscription (looked up by URL afterwards)                                    |
+| `freshrss subs edit <feed id> [--title t] [--category name]` | subscription/edit `ac=edit`        | `{"ok":true}`                                                                         |
+| `freshrss subs rm <feed id>...`                              | subscription/edit `ac=unsubscribe` | `{"ok":true}`                                                                         |
+| `freshrss subs export`                                       | subscription/export                | OPML on stdout                                                                        |
+| `freshrss subs import <file or ->`                           | subscription/import                | `{"ok":true}`                                                                         |
+| `freshrss tags list`                                         | tag/list                           | array of tags                                                                         |
+| `freshrss tags rename <old> <new>`                           | rename-tag                         | `{"ok":true}`                                                                         |
+| `freshrss tags rm <name>`                                    | disable-tag                        | `{"ok":true}`                                                                         |
+| `freshrss unread`                                            | unread-count                       | `{"max": n, "unreadcounts": [...]}`                                                   |
+| `freshrss entries [stream options]`                          | stream/contents                    | `{"items": [...], "continuation": "..."}`; no `continuation` when the end was reached |
+| `freshrss ids [stream options]`                              | stream/items/ids                   | `{"ids": ["..."], "continuation": "..."}`                                             |
+| `freshrss get <item id>...`                                  | stream/items/contents              | `{"items": [...]}`                                                                    |
+| `freshrss mark read\|unread\|star\|unstar <item id>...`      | edit-tag                           | `{"ok":true}`                                                                         |
+| `freshrss mark tag\|untag <tag name> <item id>...`           | edit-tag                           | `{"ok":true}`                                                                         |
+| `freshrss mark-all-read <stream id> [--before <time>]`       | mark-all-as-read                   | `{"ok":true}`                                                                         |
 
 Item ids are accepted in both forms the server gives: decimal (`ids`) and `tag:google.com,2005:reader/item/<hex>` (`entries`).
 

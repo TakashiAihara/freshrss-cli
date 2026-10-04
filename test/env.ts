@@ -30,16 +30,35 @@ export type Env = {
 
 const run = async (cmd: string[]): Promise<string> => {
   const p = spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  const [out, err, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
   if (code !== 0) throw new Error(`${cmd[0]} ${cmd[1]} exited ${code}: ${err}`);
   return out.trim();
 };
 
 export const start = async (): Promise<Env> => {
-  // The container reaches the host through host-gateway, so the feed server listens on every interface.
+  // The container reaches the host at the bridge gateway, so the feed server listens on every interface. The feed is
+  // addressed by that IP, not by a name from --add-host: FreshRSS resolves feed hosts with dns_get_record(), which
+  // does not read /etc/hosts, and refuses a host it cannot resolve.
+  const gateway = await run([
+    "docker",
+    "network",
+    "inspect",
+    "bridge",
+    "--format",
+    "{{(index .IPAM.Config 0).Gateway}}",
+  ]);
   let feedBase = "";
-  const feeds = Bun.serve({ hostname: "0.0.0.0", port: 0, fetch: (): Response => new Response(rss(feedBase)) });
-  feedBase = `http://host.docker.internal:${feeds.port}`;
+  const feeds = Bun.serve({
+    hostname: "0.0.0.0",
+    port: 0,
+    fetch: (): Response =>
+      new Response(rss(feedBase), { headers: { "Content-Type": "application/rss+xml" } }),
+  });
+  feedBase = `http://${gateway}:${feeds.port}`;
 
   const webPassword = crypto.randomUUID();
   const apiPassword = crypto.randomUUID();
@@ -52,12 +71,20 @@ export const start = async (): Promise<Env> => {
 
   try {
     await run([
-      "docker", "run", "-d", "--rm", "--name", name,
-      "-p", "127.0.0.1::80",
-      "--add-host", "host.docker.internal:host-gateway",
-      "-e", `INTERNAL_HOST_ALLOWLIST=host.docker.internal:${feeds.port}`,
-      "-e", `FRESHRSS_INSTALL=--api-enabled --default-user ${USER} --base-url http://localhost`,
-      "-e", `FRESHRSS_USER=--user ${USER} --password ${webPassword} --api-password ${apiPassword} --no-default-feeds`,
+      "docker",
+      "run",
+      "-d",
+      "--rm",
+      "--name",
+      name,
+      "-p",
+      "127.0.0.1::80",
+      "-e",
+      `INTERNAL_HOST_ALLOWLIST=${gateway}:${feeds.port}`,
+      "-e",
+      `FRESHRSS_INSTALL=--api-enabled --default-user ${USER} --base-url http://localhost`,
+      "-e",
+      `FRESHRSS_USER=--user ${USER} --password ${webPassword} --api-password ${apiPassword} --no-default-feeds`,
       IMAGE,
     ]);
     const port = (await run(["docker", "port", name, "80/tcp"])).split(":").at(-1);
@@ -71,7 +98,8 @@ export const start = async (): Promise<Env> => {
         body: new URLSearchParams({ Email: USER, Passwd: apiPassword }),
       }).catch(() => undefined);
       if (res?.status === 200) break;
-      if (Date.now() > deadline) throw new Error(`FreshRSS did not accept the login within 90s (last: ${res?.status})`);
+      if (Date.now() > deadline)
+        throw new Error(`FreshRSS did not accept the login within 90s (last: ${res?.status})`);
       await Bun.sleep(1000);
     }
 
@@ -103,9 +131,15 @@ export const cli = async (
     stdout: "pipe",
     stderr: "pipe",
     // spawn passes an undefined value as the string "undefined", so drop the keys a test unsets.
-    env: Object.fromEntries(Object.entries(vars).filter((kv): kv is [string, string] => kv[1] !== undefined)),
+    env: Object.fromEntries(
+      Object.entries(vars).filter((kv): kv is [string, string] => kv[1] !== undefined),
+    ),
   });
-  const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
   return { code, stdout, stderr };
 };
 

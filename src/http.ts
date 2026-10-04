@@ -16,8 +16,10 @@ export const customFetch = async <T>(path: string, init: RequestInit): Promise<T
 
   const res = await fetch(`${session.base}/api/greader.php${path}`, { ...init, headers });
   const text = await res.text();
-  // FreshRSS answers errors as text/plain even on JSON endpoints, so parse by content type, not by the operation.
-  const isJson = (res.headers.get("content-type") ?? "").includes("json");
+  // Errors come back as text/plain even on JSON endpoints, and user-info and stream/items/ids send their JSON as
+  // text/html, so neither the operation nor the content type alone says what the body is. Error bodies are short
+  // sentences, never a JSON object or array.
+  const isJson = (res.headers.get("content-type") ?? "").includes("json") || /^\s*[[{]/.test(text);
   const data = isJson && text !== "" ? JSON.parse(text) : text;
 
   return { data, status: res.status, headers: res.headers } as T;

@@ -10,7 +10,8 @@ let env: Env;
 let feedId: string;
 
 const subs = async (): Promise<Sub[]> => ok<Sub[]>(await cli(env, ["subs", "list"]));
-const entries = async (...args: string[]): Promise<Page> => ok<Page>(await cli(env, ["entries", ...args]));
+const entries = async (...args: string[]): Promise<Page> =>
+  ok<Page>(await cli(env, ["entries", ...args]));
 const titles = (p: Page): string[] => p.items.map((i) => i.title).sort();
 
 beforeAll(async () => {
@@ -54,7 +55,9 @@ describe("reading and writing one user's data", () => {
   });
 
   test("subs add subscribes, files the feed in the category and prints the new subscription", async () => {
-    const added = ok<Sub>(await cli(env, ["subs", "add", env.feedUrl, "--title", "Local", "--category", "News"]));
+    const added = ok<Sub>(
+      await cli(env, ["subs", "add", env.feedUrl, "--title", "Local", "--category", "News"]),
+    );
     expect(added.id).toMatch(/^feed\/\d+$/);
     expect(added.title).toBe("Local");
     expect(added.categories[0]?.label).toBe("News");
@@ -71,7 +74,9 @@ describe("reading and writing one user's data", () => {
   });
 
   test("unread counts every item of the new feed", async () => {
-    const u = ok<{ max: number; unreadcounts: { id: string; count: number }[] }>(await cli(env, ["unread"]));
+    const u = ok<{ max: number; unreadcounts: { id: string; count: number }[] }>(
+      await cli(env, ["unread"]),
+    );
     expect(u.max).toBe(3);
     expect(u.unreadcounts.find((c) => c.id === `feed/${feedId}`)?.count).toBe(3);
   });
@@ -122,7 +127,9 @@ describe("reading and writing one user's data", () => {
     expect(titles(await entries("--feed", feedId, "--unread"))).toEqual(["Second", "Third"]);
     expect(titles(await entries("--feed", feedId, "--read"))).toEqual(["First"]);
 
-    const [decimal] = ok<{ ids: string[] }>(await cli(env, ["ids", "--feed", feedId, "--read"])).ids;
+    const [decimal] = ok<{ ids: string[] }>(
+      await cli(env, ["ids", "--feed", feedId, "--read"]),
+    ).ids;
     ok(await cli(env, ["mark", "unread", decimal ?? ""]));
     expect((await entries("--feed", feedId, "--unread")).items.length).toBe(3);
   });
@@ -169,6 +176,12 @@ describe("reading and writing one user's data", () => {
     expect(s?.categories[0]?.label).toBe("Other");
   });
 
+  test("mark-all-read --before a time before the items were added marks nothing", async () => {
+    // The items were added when the feed was subscribed, minutes ago; their published dates are in January.
+    ok(await cli(env, ["mark-all-read", `feed/${feedId}`, "--before", "2026-02-01T00:00:00Z"]));
+    expect((await entries("--feed", feedId, "--unread")).items.length).toBe(3);
+  });
+
   test("mark-all-read marks every item of the stream read", async () => {
     ok(await cli(env, ["mark-all-read", `feed/${feedId}`]));
     expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
@@ -185,6 +198,16 @@ describe("reading and writing one user's data", () => {
 
     ok(await cli(env, ["subs", "import", "-"], { stdin: opml.stdout }));
     expect((await subs()).map((s) => s.url)).toEqual([env.feedUrl]);
+  });
+});
+
+describe("version", () => {
+  test("--version prints the version without logging in", async () => {
+    const r = await cli(env, ["--version"], {
+      vars: { FRESHRSS_URL: undefined, FRESHRSS_API_PASSWORD: undefined },
+    });
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
   });
 });
 
