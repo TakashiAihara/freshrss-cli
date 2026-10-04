@@ -1,0 +1,700 @@
+openapi: 3.1.0
+info:
+  title: FreshRSS Google Reader API
+  version: 0.1.0
+  description: |
+    Written by hand from FreshRSS `p/api/greader.php` (branch edge, commit 4e5e142, 2026-10-03), because FreshRSS
+    publishes no OpenAPI document. The PHP file is the only exact specification; when FreshRSS changes it, diff that
+    file and update this document. The request and response shapes are the same in release 1.30.0, the version the
+    tests run against.
+
+    Conventions the server follows everywhere:
+    - Every POST body is `application/x-www-form-urlencoded`. A key may repeat (`i=1&i=2`) to send a list.
+    - Write operations answer `200 text/plain` with the body `OK`. Any failure answers `400 Bad Request`,
+      `401 Unauthorized`, `501 Not Implemented` or `503 Service Unavailable` with a short text body.
+    - Write operations need the action token `T` from `GET /reader/api/0/token`.
+    - A stream id is one of: `feed/<numeric feed id>`, `user/-/label/<category or tag name>`,
+      `user/-/state/com.google/{reading-list,starred,read,unread}`, `user/-/state/org.freshrss/{main,important}`.
+servers:
+  - url: "{base}/api/greader.php"
+    variables:
+      base:
+        default: https://freshrss.example.net
+components:
+  securitySchemes:
+    googleLogin:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "`GoogleLogin auth=<Auth from ClientLogin>`. The value does not expire; it changes only when the API password changes."
+  parameters:
+    output:
+      name: output
+      in: query
+      required: true
+      description: Only `json` is implemented; anything else answers 501.
+      schema:
+        type: string
+        enum: [json]
+    streamId:
+      name: s
+      in: query
+      required: true
+      description: Stream id (see the description of this document). A feed must be given by its numeric id; `feed/<url>` does not work in the query form.
+      schema:
+        type: string
+    count:
+      name: n
+      in: query
+      description: Maximum number of items. Default 20.
+      schema:
+        type: integer
+    order:
+      name: r
+      in: query
+      description: "`o` = oldest first; anything else (default `d`) = newest first."
+      schema:
+        type: string
+        enum: [d, n, o]
+    startTime:
+      name: ot
+      in: query
+      description: Unix seconds. Only items published or modified at or after this time.
+      schema:
+        type: integer
+    stopTime:
+      name: nt
+      in: query
+      description: Unix seconds. Only items published and modified at or before this time.
+      schema:
+        type: integer
+    excludeTarget:
+      name: xt
+      in: query
+      description: Exclude items in this state.
+      schema:
+        type: string
+        enum:
+          - user/-/state/com.google/read
+          - user/-/state/com.google/unread
+          - user/-/state/com.google/starred
+    includeTarget:
+      name: it
+      in: query
+      description: Only items in this state.
+      schema:
+        type: string
+        enum:
+          - user/-/state/com.google/read
+          - user/-/state/com.google/unread
+          - user/-/state/com.google/starred
+    continuation:
+      name: c
+      in: query
+      description: The `continuation` of the previous page. Non-digit values are ignored.
+      schema:
+        type: string
+  responses:
+    ok:
+      description: The literal body `OK`.
+      content:
+        text/plain:
+          schema:
+            type: string
+            const: OK
+    badRequest:
+      description: Malformed request, unknown stream, or the operation failed.
+      content:
+        text/plain:
+          schema:
+            type: string
+    unauthorized:
+      description: Missing or wrong Authorization, or wrong action token.
+      content:
+        text/plain:
+          schema:
+            type: string
+  schemas:
+    Tag:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: "`user/-/state/...` for the built-in states, `user/-/label/<name>` for categories and tags."
+        type:
+          type: string
+          enum: [folder, tag]
+          description: "`folder` = category, `tag` = user tag. Absent on built-in states."
+        unread_count:
+          type: integer
+          description: "Only on `type: tag`."
+    Subscription:
+      type: object
+      required: [id, title, categories, url, htmlUrl, iconUrl, "frss:priority"]
+      properties:
+        id:
+          type: string
+          description: "`feed/<numeric id>`"
+        title:
+          type: string
+        categories:
+          type: array
+          description: Always exactly one element; a feed belongs to one category.
+          items:
+            type: object
+            required: [id, label]
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+        url:
+          type: string
+        htmlUrl:
+          type: string
+        iconUrl:
+          type: string
+        "frss:priority":
+          type: string
+          description: important / main / category / feed. Hidden feeds are not listed.
+    UnreadCount:
+      type: object
+      required: [id, count, newestItemTimestampUsec]
+      properties:
+        id:
+          type: string
+        count:
+          type: integer
+        newestItemTimestampUsec:
+          type: string
+    Item:
+      type: object
+      required:
+        [
+          id,
+          crawlTimeMsec,
+          timestampUsec,
+          published,
+          title,
+          canonical,
+          alternate,
+          categories,
+          origin,
+          summary,
+        ]
+      properties:
+        id:
+          type: string
+          description: "`tag:google.com,2005:reader/item/<16 hex digits>`. Write operations also accept the decimal id."
+        crawlTimeMsec:
+          type: string
+        timestampUsec:
+          type: string
+          description: Time FreshRSS added the item, microseconds.
+        published:
+          type: integer
+          description: Unix seconds.
+        title:
+          type: string
+        canonical:
+          type: array
+          items:
+            type: object
+            required: [href]
+            properties:
+              href:
+                type: string
+        alternate:
+          type: array
+          items:
+            type: object
+            required: [href]
+            properties:
+              href:
+                type: string
+        categories:
+          type: array
+          description: "Stream ids the item is in: reading-list, its category label, main / important, read, starred, and its tags."
+          items:
+            type: string
+        origin:
+          type: object
+          required: [streamId]
+          properties:
+            streamId:
+              type: string
+            htmlUrl:
+              type: string
+            title:
+              type: string
+        summary:
+          type: object
+          required: [content]
+          properties:
+            content:
+              type: string
+              description: HTML body, cut at 500,000 bytes.
+        author:
+          type: string
+        enclosure:
+          type: array
+          items:
+            type: object
+            required: [href, type]
+            properties:
+              href:
+                type: string
+              type:
+                type: string
+              length:
+                type: integer
+    StreamContents:
+      type: object
+      required: [id, updated, items]
+      properties:
+        id:
+          type: string
+          description: Always `user/-/state/com.google/reading-list`, whatever stream was asked.
+        updated:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+        continuation:
+          type: string
+          description: Present when the page was full; pass it as `c` to get the next page.
+security:
+  - googleLogin: []
+paths:
+  /accounts/ClientLogin:
+    post:
+      operationId: clientLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [Email, Passwd]
+              properties:
+                Email:
+                  type: string
+                  description: FreshRSS user name.
+                Passwd:
+                  type: string
+                  description: The user's API password (not the web password).
+      responses:
+        "200":
+          description: "Three lines: `SID=<auth>`, `LSID=null`, `Auth=<auth>`."
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/badRequest"
+        "401":
+          $ref: "#/components/responses/unauthorized"
+  /reader/api/0/token:
+    get:
+      operationId: getToken
+      responses:
+        "200":
+          description: The action token (57 characters) followed by a newline.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/unauthorized"
+  /reader/api/0/user-info:
+    get:
+      operationId: getUserInfo
+      responses:
+        "200":
+          description: The authenticated user. The server labels this JSON as text/html.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId, userName, userProfileId, userEmail]
+                properties:
+                  userId:
+                    type: string
+                  userName:
+                    type: string
+                  userProfileId:
+                    type: string
+                  userEmail:
+                    type: string
+        "401":
+          $ref: "#/components/responses/unauthorized"
+  /reader/api/0/tag/list:
+    get:
+      operationId: listTags
+      parameters:
+        - $ref: "#/components/parameters/output"
+      responses:
+        "200":
+          description: Built-in states, categories and tags.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tags]
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Tag"
+  /reader/api/0/subscription/list:
+    get:
+      operationId: listSubscriptions
+      parameters:
+        - $ref: "#/components/parameters/output"
+      responses:
+        "200":
+          description: Every feed that is not hidden.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subscriptions]
+                properties:
+                  subscriptions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Subscription"
+  /reader/api/0/subscription/export:
+    get:
+      operationId: exportSubscriptions
+      responses:
+        "200":
+          description: OPML of every feed, including XPath feeds and their settings.
+          content:
+            application/xml:
+              schema:
+                type: string
+  /reader/api/0/subscription/import:
+    post:
+      operationId: importSubscriptions
+      description: |
+        Imports an OPML document (the request body as is, up to 1 MiB) and refreshes the feeds. The server reads the
+        raw body whatever its content type; it is declared text/plain because Orval's fetch client sends only a
+        text/plain string body unchanged (an application/xml string would be JSON-encoded).
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/ok"
+        "400":
+          $ref: "#/components/responses/badRequest"
+  /reader/api/0/subscription/edit:
+    post:
+      operationId: editSubscription
+      description: |
+        `subscribe`: `s` is `feed/<url>`; the kind is guessed from the URL (JSON Feed if it contains `json`, else RSS/Atom).
+        `unsubscribe` / `edit`: `s` is `feed/<numeric id>` or `feed/<url>`. `edit` moves the feed to the category `a`
+        and renames it to `t`. Lists of `s` and `t` pair up by position. No action token is checked.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [s, ac]
+              properties:
+                s:
+                  type: array
+                  items:
+                    type: string
+                t:
+                  type: array
+                  items:
+                    type: string
+                ac:
+                  type: string
+                  enum: [subscribe, unsubscribe, edit]
+                a:
+                  type: string
+                  description: "`user/-/label/<category>`; created when it does not exist."
+                r:
+                  type: string
+                  description: "`user/-/label/<category>`; moves the feed to the default category."
+            encoding:
+              s:
+                style: form
+                explode: true
+              t:
+                style: form
+                explode: true
+      responses:
+        "200":
+          $ref: "#/components/responses/ok"
+        "400":
+          $ref: "#/components/responses/badRequest"
+  /reader/api/0/subscription/quickadd:
+    post:
+      operationId: quickAddSubscription
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [quickadd]
+              properties:
+                quickadd:
+                  type: string
+                  description: Feed URL, optionally prefixed with `feed/`.
+      responses:
+        "200":
+          description: "`numResults` is 1 on success, 0 with `error` on failure (still HTTP 200)."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [numResults]
+                properties:
+                  numResults:
+                    type: integer
+                  query:
+                    type: string
+                  streamId:
+                    type: string
+                  streamName:
+                    type: string
+                  error:
+                    type: string
+  /reader/api/0/unread-count:
+    get:
+      operationId: getUnreadCount
+      parameters:
+        - $ref: "#/components/parameters/output"
+      responses:
+        "200":
+          description: Unread counts per feed, category, tag and the whole reading list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [max, unreadcounts]
+                properties:
+                  max:
+                    type: integer
+                  unreadcounts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UnreadCount"
+  /reader/api/0/stream/contents:
+    get:
+      operationId: getStreamContents
+      description: Items of one stream with their content. The query form of the stream id (BazQux compatible).
+      parameters:
+        - $ref: "#/components/parameters/streamId"
+        - $ref: "#/components/parameters/count"
+        - $ref: "#/components/parameters/order"
+        - $ref: "#/components/parameters/startTime"
+        - $ref: "#/components/parameters/stopTime"
+        - $ref: "#/components/parameters/excludeTarget"
+        - $ref: "#/components/parameters/includeTarget"
+        - $ref: "#/components/parameters/continuation"
+      responses:
+        "200":
+          description: One page of items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamContents"
+        "400":
+          $ref: "#/components/responses/badRequest"
+  /reader/api/0/stream/items/ids:
+    get:
+      operationId: getStreamItemIds
+      parameters:
+        - $ref: "#/components/parameters/streamId"
+        - $ref: "#/components/parameters/count"
+        - $ref: "#/components/parameters/order"
+        - $ref: "#/components/parameters/startTime"
+        - $ref: "#/components/parameters/stopTime"
+        - $ref: "#/components/parameters/excludeTarget"
+        - $ref: "#/components/parameters/includeTarget"
+        - $ref: "#/components/parameters/continuation"
+      responses:
+        "200":
+          description: One page of item ids (decimal). The server labels this JSON as text/html.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [itemRefs]
+                properties:
+                  itemRefs:
+                    type: array
+                    items:
+                      type: object
+                      required: [id]
+                      properties:
+                        id:
+                          type: string
+                  continuation:
+                    type: string
+  /reader/api/0/stream/items/contents:
+    post:
+      operationId: getStreamItemContents
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [i]
+              properties:
+                i:
+                  type: array
+                  description: Item ids, decimal or `tag:google.com,2005:reader/item/<hex>`.
+                  items:
+                    type: string
+            encoding:
+              i:
+                style: form
+                explode: true
+      responses:
+        "200":
+          description: The items (never a continuation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StreamContents"
+  /reader/api/0/edit-tag:
+    post:
+      operationId: editTag
+      description: |
+        Adds the states / labels in `a` to every item in `i` and removes those in `r`.
+        `user/-/state/com.google/read` and `.../starred` set read and starred; `user/-/label/<name>` tags the item
+        (the tag is created when missing). broadcast / like / tracking-kept-unread are accepted and ignored.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [T, i]
+              properties:
+                T:
+                  type: string
+                i:
+                  type: array
+                  items:
+                    type: string
+                a:
+                  type: array
+                  items:
+                    type: string
+                r:
+                  type: array
+                  items:
+                    type: string
+            encoding:
+              i:
+                style: form
+                explode: true
+              a:
+                style: form
+                explode: true
+              r:
+                style: form
+                explode: true
+      responses:
+        "200":
+          $ref: "#/components/responses/ok"
+        "401":
+          $ref: "#/components/responses/unauthorized"
+  /reader/api/0/rename-tag:
+    post:
+      operationId: renameTag
+      description: Renames a category or, when no category has that name, a tag.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [T, s, dest]
+              properties:
+                T:
+                  type: string
+                s:
+                  type: string
+                  description: "`user/-/label/<old name>`"
+                dest:
+                  type: string
+                  description: "`user/-/label/<new name>`"
+      responses:
+        "200":
+          $ref: "#/components/responses/ok"
+        "400":
+          $ref: "#/components/responses/badRequest"
+        "401":
+          $ref: "#/components/responses/unauthorized"
+  /reader/api/0/disable-tag:
+    post:
+      operationId: disableTag
+      description: |
+        Deletes a category (its feeds move to the default category; the default category itself is kept) or, when no
+        category has that name, deletes a tag. Only the first `s` is processed: the server answers after it.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [T, s]
+              properties:
+                T:
+                  type: string
+                s:
+                  type: string
+                  description: "`user/-/label/<name>`"
+      responses:
+        "200":
+          $ref: "#/components/responses/ok"
+        "400":
+          $ref: "#/components/responses/badRequest"
+        "401":
+          $ref: "#/components/responses/unauthorized"
+  /reader/api/0/mark-all-as-read:
+    post:
+      operationId: markAllAsRead
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [T, s]
+              properties:
+                T:
+                  type: string
+                s:
+                  type: string
+                  description: "`feed/<numeric id>`, `user/-/label/<name>`, or a `user/-/state/...` stream."
+                ts:
+                  type: string
+                  description: |
+                    Only items whose id is at most this (digits). An item id is the time FreshRSS added the item, in
+                    microseconds since the epoch; greader.php's comment says nanoseconds, but EntryDAO compares
+                    `id <= ts`. `0` or absent = all.
+      responses:
+        "200":
+          $ref: "#/components/responses/ok"
+        "400":
+          $ref: "#/components/responses/badRequest"
+        "401":
+          $ref: "#/components/responses/unauthorized"

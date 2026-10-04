@@ -1,0 +1,65 @@
+import { $ } from "bun";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+// Builds a standalone binary for every release target and packs each one the way install.sh expects:
+// dist/freshrss_<os>_<arch>.tar.gz holding freshrss, README.md and LICENSE, plus dist/checksums.txt in sha256sum
+// format.
+//
+// Usage: bun scripts/build.ts [version]   (version defaults to "dev")
+
+const TARGETS = [
+  // baseline: the default x64 build needs AVX2, which older or emulated CPUs lack.
+  { os: "linux", arch: "amd64", bun: "bun-linux-x64-baseline" },
+  { os: "linux", arch: "arm64", bun: "bun-linux-arm64" },
+  { os: "darwin", arch: "amd64", bun: "bun-darwin-x64-baseline" },
+  { os: "darwin", arch: "arm64", bun: "bun-darwin-arm64" },
+];
+
+const HOST_OS = process.platform;
+const HOST_ARCH = process.arch === "x64" ? "amd64" : process.arch;
+
+// The tag is vX.Y.Z; the binary reports X.Y.Z.
+const version = (process.argv[2] ?? "dev").replace(/^v(?=\d)/, "");
+const dist = new URL("../dist/", import.meta.url).pathname;
+rmSync(dist, { recursive: true, force: true });
+mkdirSync(dist);
+
+const sums: string[] = [];
+let ranOnHost = false;
+for (const t of TARGETS) {
+  const stage = `${dist}${t.os}_${t.arch}/`;
+  mkdirSync(stage);
+  await $`bun build src/cli.ts --compile --minify --target=${t.bun} --define FRESHRSS_BUILD_VERSION=${JSON.stringify(version)} --outfile ${stage}freshrss`.quiet();
+  // The one target this machine can run is run before it is packed: a binary that does not start (a bundling change
+  // that breaks the version constant, say) must stop the build, not reach install.sh on a user's machine.
+  if (t.os === HOST_OS && t.arch === HOST_ARCH) {
+    const reported = (await $`${stage}freshrss --version`.text()).trim();
+    if (reported !== version)
+      throw new Error(`${t.os}_${t.arch} reports version ${reported}, expected ${version}`);
+    console.log(`${t.os}_${t.arch} runs and reports ${reported}`);
+    ranOnHost = true;
+  }
+  await $`cp README.md LICENSE ${stage}`;
+  const archive = `freshrss_${t.os}_${t.arch}.tar.gz`;
+  await $`tar -czf ${dist}${archive} -C ${stage} freshrss README.md LICENSE`;
+  rmSync(stage, { recursive: true });
+  sums.push(
+    `${createHash("sha256")
+      .update(readFileSync(`${dist}${archive}`))
+      .digest("hex")}  ${archive}`,
+  );
+  console.log(archive);
+}
+if (!ranOnHost)
+  throw new Error(`no target matches this host (${HOST_OS}/${HOST_ARCH}), so no binary was run`);
+
+// install.sh is published with the release and piped into sh, so it is listed with the archives.
+await $`cp install.sh ${dist}install.sh`;
+sums.push(
+  `${createHash("sha256")
+    .update(readFileSync(`${dist}install.sh`))
+    .digest("hex")}  install.sh`,
+);
+sums.sort((a, b) => ((a.split("  ")[1] ?? "") < (b.split("  ")[1] ?? "") ? -1 : 1));
+writeFileSync(`${dist}checksums.txt`, `${sums.join("\n")}\n`);
