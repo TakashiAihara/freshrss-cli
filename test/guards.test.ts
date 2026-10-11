@@ -1,13 +1,24 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { cli, type Env } from "./env";
+import { cli, type Env, ok } from "./env";
 
-// Guards for answers the real FreshRSS does not give, so the Docker server in cli.test.ts cannot reach them.
+// Answers the real FreshRSS in cli.test.ts never gives, or gives in a form the CLI's result cannot tell apart.
 let server: ReturnType<typeof Bun.serve>;
 let env: Env;
 const requests: URL[] = [];
 
+// Pages for stream/contents, chosen by the `c` the CLI sends: `empty` keeps naming a new continuation with no items,
+// `stuck` repeats the same continuation with an item. Both end after a few pages so a broken guard ends the test.
+const page = (c: string | null): unknown => {
+  const [kind, n] = (c ?? "empty-0").split("-");
+  const next = Number(n) + 1;
+  if (next > 4) return { items: [] };
+  if (kind === "stuck") return { items: [{ id: "x" }], continuation: "stuck-0" };
+  return { items: [], continuation: `empty-${next}` };
+};
+
 beforeAll(() => {
   server = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     fetch: (req: Request): Response => {
       const url = new URL(req.url);
@@ -16,11 +27,8 @@ beforeAll(() => {
       if (path === "/accounts/ClientLogin") return new Response("SID=x\nLSID=x\nAuth=fake\n");
       if (path === "/reader/api/0/token") return new Response("fake-token\n");
       if (path === "/reader/api/0/edit-tag") return new Response("Done");
-      if (path === "/reader/api/0/stream/contents") {
-        // Every page is empty and names another continuation, up to a bound so a broken guard ends the test.
-        const pages = requests.filter((r) => r.pathname.endsWith("/stream/contents")).length;
-        return Response.json(pages < 5 ? { items: [], continuation: `c${pages}` } : { items: [] });
-      }
+      if (path === "/reader/api/0/stream/contents")
+        return Response.json(page(url.searchParams.get("c")));
       return new Response("unexpected", { status: 500 });
     },
   });
@@ -47,14 +55,19 @@ test("a write answered 200 without OK is a failure (exit 1)", async () => {
 
 test("--all stops at an empty page even when it names another continuation", async () => {
   requests.length = 0;
-  const r = await cli(env, ["entries", "--all"]);
-  expect(JSON.parse(r.stdout)).toEqual({ items: [] });
+  expect(ok<{ items: unknown[] }>(await cli(env, ["entries", "--all"]))).toEqual({ items: [] });
+  expect(contents().length).toBe(1);
+});
+
+test("--all stops when the continuation does not move forward", async () => {
+  requests.length = 0;
+  ok(await cli(env, ["entries", "--all", "-c", "stuck-0"]));
   expect(contents().length).toBe(1);
 });
 
 test("--stream toString is sent as a stream id, not read from an inherited property", async () => {
   requests.length = 0;
-  await cli(env, ["entries", "--stream", "toString"]);
+  ok(await cli(env, ["entries", "--stream", "toString"]));
   const [sent] = contents();
   expect(sent?.searchParams.get("s")).toBe("toString");
   expect(sent?.searchParams.has("it")).toBe(false);

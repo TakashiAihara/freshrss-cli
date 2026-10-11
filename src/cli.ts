@@ -232,9 +232,7 @@ const collect = async <T>(
 
     const more = page.continuation;
     if (options.all !== true) return more === undefined ? { items } : { items, continuation: more };
-    // A continuation that does not move forward would never end.
-    // An empty page ends it too: a continuation that does not move forward, or one that keeps coming with no items,
-    // would never end.
+    // A continuation that does not move forward, or one that keeps coming with no items, would never end.
     if (more === undefined || more === continuation || page.items.length === 0) return { items };
     continuation = more;
   }

@@ -31,7 +31,7 @@ Stream options, shared by `entries` and `ids` (at most one of the first four; de
 - `--starred` → `user/-/state/com.google/starred`
 - `--stream <stream id>` → given as is
 - `--unread` / `--read` → `it=` the state; `--starred` already selects the stream
-- `-n, --count <n>` items per request (default 20; with `--all`, the page size), `--oldest` (oldest first), `-c, --continuation <c>`, `--all` (follow continuations until the end; every item is held in memory)
+- `-n, --count <n>` items per request (default 20; with `--all`, the page size), `--oldest` (oldest first), `-c, --continuation <c>`, `--all` (follow continuations until the end, or until a page with no items or a continuation that does not move forward; every item is held in memory)
 - `--since <time>` / `--until <time>`: Unix seconds (digits only) or ISO 8601 (a date, read as UTC, or a date-time with `Z` or an offset). The server keeps an item for `--since` when it was published, added or last changed at or after the time, and for `--until` when it was published and last changed at or before it; neither is a pure publication-date filter
 - `--stream user/-/state/com.google/read` (or `unread`) is sent as the reading list with that state filter, because stream/contents does not serve those two states as streams
 
