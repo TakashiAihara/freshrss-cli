@@ -54,9 +54,11 @@ Stream options, shared by `entries` and `ids` (at most one of the first four; de
 | `freshrss mark read\|unread\|star\|unstar <item id>...`      | edit-tag                                                                     | `{"ok":true}`                                                                         |
 | `freshrss mark tag\|untag <tag name> <item id>...`           | edit-tag                                                                     | `{"ok":true}`                                                                         |
 | `freshrss mark-all-read <stream id> [--before <time>]`       | mark-all-as-read                                                             | `{"ok":true}`                                                                         |
+| `freshrss mark-all-read --feed\|--label\|--starred ...`      | mark-all-as-read                                                             | `{"ok":true}`                                                                         |
 
 Item ids are accepted in both forms the server gives: decimal (`ids`) and `tag:google.com,2005:reader/item/<hex>` (`entries`).
 
+- `mark-all-read` takes exactly one of a stream id, `--feed`, `--label` or `--starred` (the same selectors as `entries`). None is a usage error rather than the whole reading list, and it is checked before logging in.
 - `mark-all-read --before` bounds the time FreshRSS added each item (its id), not the publication date. A time at or before 1970 is refused: the server reads `ts=0` as no bound.
 - `subs add` uses quickadd because it answers with the new feed's id: the server may store another URL than the one given (a discovered feed, a redirect), and another client may subscribe at the same time. A URL that is already subscribed is refused by the server and exits 1 with its reason.
 - `subs rm` sends one request per feed, in the order given: with several feeds in one request the server works from the last and stops at the first it cannot remove, after removing the ones behind it. The first failure stops it; with more than one feed it exits 1 with `removed: <ids or none>; <id> failed: <reason>; not attempted: <ids or none>`. It does not check the ids against `subs list` first, which leaves out hidden feeds. Duplicates (`5`, `feed/5`, `05`) are removed once, and an argument that is not a feed id is a usage error.

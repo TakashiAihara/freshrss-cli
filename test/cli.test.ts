@@ -291,6 +291,31 @@ describe("reading and writing one user's data", () => {
     expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
   });
 
+  test("mark-all-read --feed and --label select the stream like entries", async () => {
+    const ids = ok<{ ids: string[] }>(await cli(env, ["ids", "--feed", feedId])).ids;
+
+    ok(await cli(env, ["mark", "unread", ...ids]));
+    ok(await cli(env, ["mark-all-read", "--feed", feedId]));
+    expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
+
+    // The feed was moved to the category Other by subs edit.
+    ok(await cli(env, ["mark", "unread", ...ids]));
+    ok(await cli(env, ["mark-all-read", "--label", "Other"]));
+    expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
+  });
+
+  test("mark-all-read --starred marks only the starred items", async () => {
+    const ids = ok<{ ids: string[] }>(await cli(env, ["ids", "--feed", feedId])).ids;
+    ok(await cli(env, ["mark", "unread", ...ids]));
+    ok(await cli(env, ["mark", "star", ids[0] ?? ""]));
+
+    ok(await cli(env, ["mark-all-read", "--starred"]));
+    expect((await entries("--feed", feedId, "--unread")).items.length).toBe(2);
+    expect((await entries("--starred", "--unread")).items).toEqual([]);
+
+    ok(await cli(env, ["mark", "unstar", ids[0] ?? ""]));
+  });
+
   test("subs export prints OPML; subs rm unsubscribes; subs import from stdin restores it", async () => {
     const opml = await cli(env, ["subs", "export"]);
     expect(opml.code).toBe(0);
@@ -334,6 +359,22 @@ describe("usage errors", () => {
   test("two stream options at once are rejected (exit 2)", async () => {
     const r = await cli(env, ["entries", "--feed", "1", "--label", "x"]);
     expect(r.code).toBe(2);
+  });
+
+  test("mark-all-read takes exactly one of a stream id, --feed, --label and --starred (exit 2, before logging in)", async () => {
+    // A server that cannot be reached: logging in first would exit 1.
+    const offline = { vars: { FRESHRSS_URL: "http://127.0.0.1:1" } };
+    for (const args of [
+      [],
+      ["feed/1", "--feed", "1"],
+      ["--feed", "1", "--label", "x"],
+      ["--label", "x", "--starred"],
+    ]) {
+      const r = await cli(env, ["mark-all-read", ...args], offline);
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("exactly one of a stream id, --feed, --label or --starred");
+    }
+    expect((await cli(env, ["mark-all-read", "--feed", "abc"], offline)).code).toBe(2);
   });
 
   test("an unknown mark action is rejected (exit 2)", async () => {
