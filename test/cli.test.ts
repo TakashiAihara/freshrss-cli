@@ -293,15 +293,24 @@ describe("reading and writing one user's data", () => {
 
   test("mark-all-read --feed and --label select the stream like entries", async () => {
     const ids = ok<{ ids: string[] }>(await cli(env, ["ids", "--feed", feedId])).ids;
+    // Another feed in another category, whose items must stay unread.
+    const other = ok<Sub>(
+      await cli(env, ["subs", "add", env.feedUrl.replace("feed.xml", "mark-other.xml")]),
+    );
+    const otherId = other.id.slice("feed/".length);
 
     ok(await cli(env, ["mark", "unread", ...ids]));
     ok(await cli(env, ["mark-all-read", "--feed", feedId]));
     expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
+    expect((await entries("--feed", otherId, "--unread")).items.length).toBe(3);
 
     // The feed was moved to the category Other by subs edit.
     ok(await cli(env, ["mark", "unread", ...ids]));
     ok(await cli(env, ["mark-all-read", "--label", "Other"]));
     expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
+    expect((await entries("--feed", otherId, "--unread")).items.length).toBe(3);
+
+    ok(await cli(env, ["subs", "rm", other.id]));
   });
 
   test("mark-all-read --starred marks only the starred items", async () => {
