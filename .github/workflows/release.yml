@@ -48,6 +48,9 @@ jobs:
       actions: read
     outputs:
       tag: ${{ steps.decide.outputs.tag }}
+      # The commit that was checked, so publish builds that one even if the tag
+      # is moved while this run is between jobs.
+      sha: ${{ steps.decide.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,12 +64,28 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # workflow_run is gated on ci by its trigger; a tag is not. Only a commit
+      # that passed ci as a push to main is released. This catches a tag put on
+      # an untested commit by mistake; it does not stop someone who can push
+      # tags, since a tag push runs the release.yml of the tagged commit.
+      - name: ci passed for this commit
+        if: github.event_name != 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          sha="$(git rev-parse HEAD)"
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&branch=main&status=success" --jq '.total_count')"
+          if ! printf '%s\n' "$passed" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "::error::$sha has no successful ci run on a push to main (got: $passed)"
+            exit 1
+          fi
+
       - name: decide the tag
         id: decide
         env:
           EVENT: ${{ github.event_name }}
           GIVEN: ${{ github.event.inputs.tag || github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           if [ "$EVENT" != workflow_run ]; then
@@ -76,15 +95,8 @@ jobs:
               echo "::error::$GIVEN is not a vX.Y.Z or vX.Y.Z-rc.N tag"
               exit 1
             fi
-            # workflow_run is gated on ci by its trigger; a tag is not. Only a
-            # commit that passed ci as a push to main is released, so a tag on
-            # an untested commit stops here. Assigned on its own line for set -e.
             sha="$(git rev-parse HEAD)"
-            passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success" --jq '.total_count')"
-            if [ "$passed" = 0 ]; then
-              echo "::error::$GIVEN ($sha) has no successful ci run on a push to main; wait for ci, then re-run"
-              exit 1
-            fi
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
             echo "tag=$GIVEN" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -102,6 +114,8 @@ jobs:
           if [ -z "$tag" ]; then
             tag="$(bun scripts/next-tag.ts)"
           fi
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   publish:
@@ -116,12 +130,11 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      # On a manual run inputs.tag and the default branch HEAD disagree. Without
-      # an explicit ref, binaries whose contents do not match the tag end up in
-      # the release. A missing tag fails here, so nothing is released for it.
+      # The commit the tag job checked, not the tag again: a tag moved in
+      # between would otherwise release a commit nobody checked.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.event.inputs.tag || github.ref }}
+          ref: ${{ needs.tag.outputs.sha }}
           fetch-depth: 0
           # The release is published through the API with GITHUB_TOKEN and
           # nothing is pushed over git, so the checkout needs no stored
@@ -145,8 +158,14 @@ jobs:
           TAG: ${{ needs.tag.outputs.tag }}
         run: |
           set -eu
-          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            sha="$(git rev-parse HEAD)"
+          sha="$(git rev-parse HEAD)"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            tagged="$(git rev-parse "refs/tags/$TAG^{commit}")"
+            if [ "$tagged" != "$sha" ]; then
+              echo "::error::$TAG now points at $tagged, not the checked $sha"
+              exit 1
+            fi
+          else
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$sha"
             git tag "$TAG" "$sha"
           fi
