@@ -90,7 +90,11 @@ main() {
     name="freshrss_${os}_${arch}.tar.gz"
     tmp=$(mktemp -d)
     # shellcheck disable=SC2064
-    trap "rm -rf '$tmp'" EXIT INT TERM
+    trap "rm -rf '$tmp'" EXIT
+    # The EXIT trap alone would not stop the script on a signal: exit with the
+    # conventional status so the EXIT trap cleans up and nothing runs after.
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
     printf 'downloading %s %s\n' "$name" "$version" >&2
     download "$RELEASE_BASE/$version/$name" "$tmp/$name"
@@ -107,7 +111,7 @@ main() {
     # turns out not to run.
     staged=$INSTALL_DIR/.freshrss.incoming.$$
     # shellcheck disable=SC2064
-    trap "rm -rf '$tmp' '$staged'" EXIT INT TERM
+    trap "rm -rf '$tmp' '$staged'" EXIT
 
     cp "$tmp/freshrss" "$staged" || die "could not write to $INSTALL_DIR"
     chmod 0755 "$staged" || die "could not make $staged executable"
