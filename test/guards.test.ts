@@ -5,6 +5,8 @@ import { cli, type Env, ok } from "./env";
 let server: ReturnType<typeof Bun.serve>;
 let env: Env;
 const requests: URL[] = [];
+// The `s` of every subscription/edit, in the order sent.
+const unsubscribed: string[] = [];
 
 // Pages for stream/contents, chosen by the `c` the CLI sends: `empty` keeps naming a new continuation with no items,
 // `stuck` repeats the same continuation with an item. Both end after a few pages so a broken guard ends the test.
@@ -24,10 +26,16 @@ beforeAll(() => {
   server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch: (req: Request): Response => {
+    fetch: async (req: Request): Promise<Response> => {
       const url = new URL(req.url);
       requests.push(url);
       const path = url.pathname.replace("/api/greader.php", "");
+      // feed/1 and feed/3 can be removed; feed/2 is refused the way the server refuses a feed.
+      if (path === "/reader/api/0/subscription/edit") {
+        const s = new URLSearchParams(await req.text()).get("s");
+        unsubscribed.push(s ?? "");
+        return s === "feed/2" ? new Response("Bad Request!", { status: 400 }) : new Response("OK");
+      }
       if (path === "/accounts/ClientLogin") return new Response("SID=x\nLSID=x\nAuth=fake\n");
       if (path === "/reader/api/0/token") return new Response("fake-token\n");
       if (path === "/reader/api/0/edit-tag") return new Response("Done");
@@ -75,4 +83,30 @@ test("--stream toString is sent as a stream id, not read from an inherited prope
   const [sent] = contents();
   expect(sent?.searchParams.get("s")).toBe("toString");
   expect(sent?.searchParams.has("it")).toBe(false);
+});
+
+test("subs rm stops at the first failure and names what was removed and what was not attempted", async () => {
+  unsubscribed.length = 0;
+  const r = await cli(env, ["subs", "rm", "1", "2", "3"]);
+  expect(r.code).toBe(1);
+  expect(r.stdout).toBe("");
+  expect(r.stderr).toContain(
+    "removed: feed/1; feed/2 failed: the server refused the request (HTTP 400): Bad Request!; not attempted: feed/3",
+  );
+  expect(unsubscribed).toEqual(["feed/1", "feed/2"]);
+});
+
+test("subs rm failing at its first feed says none was removed and sends nothing after it", async () => {
+  unsubscribed.length = 0;
+  const r = await cli(env, ["subs", "rm", "2", "1"]);
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain("removed: none; feed/2 failed: ");
+  expect(r.stderr).toContain("; not attempted: feed/1");
+  expect(unsubscribed).toEqual(["feed/2"]);
+});
+
+test("subs rm of a single feed reports the server's refusal as is", async () => {
+  const r = await cli(env, ["subs", "rm", "2"]);
+  expect(r.code).toBe(1);
+  expect(r.stderr).toBe("freshrss: the server refused the request (HTTP 400): Bad Request!\n");
 });

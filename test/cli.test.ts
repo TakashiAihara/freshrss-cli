@@ -86,6 +86,33 @@ describe("reading and writing one user's data", () => {
     ok(await cli(env, ["subs", "rm", added.id]));
   });
 
+  test("subs rm stops at a feed it cannot remove and names what was removed and not attempted", async () => {
+    const a = ok<Sub>(await cli(env, ["subs", "add", env.feedUrl.replace("feed.xml", "rm-a.xml")]));
+    const b = ok<Sub>(await cli(env, ["subs", "add", env.feedUrl.replace("feed.xml", "rm-b.xml")]));
+    const c = ok<Sub>(await cli(env, ["subs", "add", env.feedUrl.replace("feed.xml", "rm-c.xml")]));
+
+    const r = await cli(env, ["subs", "rm", a.id, "999999", b.id]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain(
+      `removed: ${a.id}; feed/999999 failed: the server refused the request (HTTP 400): Bad Request!; not attempted: ${b.id}`,
+    );
+    const ids = (await subs()).map((s) => s.id);
+    expect(ids).not.toContain(a.id);
+    expect(ids).toContain(b.id);
+
+    // The same feed named twice, in either form and with a leading zero, is removed once.
+    const n = b.id.slice("feed/".length);
+    ok(await cli(env, ["subs", "rm", b.id, c.id, n, `0${n}`]));
+    const left = (await subs()).map((s) => s.id);
+    expect(left).not.toContain(b.id);
+    expect(left).not.toContain(c.id);
+  });
+
+  test("subs rm of something that is not a feed id is a usage error", async () => {
+    expect((await cli(env, ["subs", "rm", "abc"])).code).toBe(2);
+  });
+
   test("subs add of an unreachable URL fails with exit 1 and the server's reason", async () => {
     const r = await cli(env, ["subs", "add", "http://127.0.0.1:1/none.xml"]);
     expect(r.code).toBe(1);
