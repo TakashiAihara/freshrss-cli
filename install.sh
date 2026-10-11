@@ -15,6 +15,7 @@ RELEASE_BASE=${FRESHRSS_RELEASE_BASE:-https://github.com/$REPO/releases/download
 
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+cleanup() { rm -rf "$tmp" ${staged:+"$staged"}; }
 
 detect_os() {
     case $(uname -s) in
@@ -89,12 +90,12 @@ main() {
 
     name="freshrss_${os}_${arch}.tar.gz"
     tmp=$(mktemp -d)
-    # shellcheck disable=SC2064
-    trap "rm -rf '$tmp'" EXIT
-    # The EXIT trap alone would not stop the script on a signal: exit with the
-    # conventional status so the EXIT trap cleans up and nothing runs after.
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
+    staged=
+    trap cleanup EXIT
+    # A trapped signal would otherwise run the handler and carry on. Clean up,
+    # then die of the same signal so the caller sees an interrupt, not an exit.
+    trap 'cleanup; trap - INT; kill -s INT $$' INT
+    trap 'cleanup; trap - TERM; kill -s TERM $$' TERM
 
     printf 'downloading %s %s\n' "$name" "$version" >&2
     download "$RELEASE_BASE/$version/$name" "$tmp/$name"
@@ -110,8 +111,6 @@ main() {
     # the final path first would destroy a working freshrss whenever the new one
     # turns out not to run.
     staged=$INSTALL_DIR/.freshrss.incoming.$$
-    # shellcheck disable=SC2064
-    trap "rm -rf '$tmp' '$staged'" EXIT
 
     cp "$tmp/freshrss" "$staged" || die "could not write to $INSTALL_DIR"
     chmod 0755 "$staged" || die "could not make $staged executable"
