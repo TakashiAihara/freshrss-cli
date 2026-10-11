@@ -185,6 +185,28 @@ const feedStreamId = (value: string): string => {
   return id.replace(/^feed\/0+(?=\d)/, "feed/");
 };
 
+/** What `mark-all-read` takes: one stream named by argument or by selector, plus the time bound. */
+type MarkAllReadOptions = { feed?: string; label?: string; starred?: boolean; before?: number };
+
+/**
+ * The stream `mark-all-read` was pointed at. Choosing one of several selectors, or falling back to the reading list,
+ * would mark items read that the user did not name, so anything but exactly one is a usage error.
+ */
+const markedStream = (stream: string | undefined, options: MarkAllReadOptions): string => {
+  const named = [stream, options.feed, options.label, options.starred].filter(
+    (one) => one !== undefined,
+  );
+  if (named.length !== 1) {
+    throw new UsageError(
+      "mark-all-read takes exactly one of a stream id, --feed, --label or --starred",
+    );
+  }
+  if (stream !== undefined) return stream;
+  if (options.feed !== undefined) return options.feed;
+  if (options.label !== undefined) return labelId(options.label);
+  return STARRED;
+};
+
 /** `--starred` already selects the starred stream, so the read state is what `it=` narrows. */
 const stateOf = (options: StreamOptions): IncludeTargetParameter | undefined => {
   if (options.unread === true) return IncludeTargetParameter["user/-/state/comgoogle/unread"];
@@ -256,7 +278,11 @@ const program = new Command()
   .showHelpAfterError()
   .exitOverride();
 
-program.hook("preAction", async () => {
+program.hook("preAction", async (_program, command) => {
+  // Commander cannot require one of an argument and three options, so this is checked here, before the login request.
+  if (command.name() === "mark-all-read") {
+    markedStream(command.args[0], command.opts<MarkAllReadOptions>());
+  }
   const options = program.opts<{ url?: string; user?: string }>();
   await login({
     url: setting(options.url, "FRESHRSS_URL", "no server URL: pass --url or set FRESHRSS_URL"),
@@ -546,8 +572,17 @@ program
   });
 
 program
-  .command("mark-all-read <stream>")
-  .description("mark every item of a stream read")
+  .command("mark-all-read [stream]")
+  .description("mark every item of a stream read: a stream id, --feed, --label or --starred")
+  .addOption(
+    new Option("--feed <id>", "a feed, by its numeric id or as feed/<id>").argParser(feedStreamId),
+  )
+  .addOption(new Option("--label <name>", "a category or a tag, by name"))
+  .addOption(new Option("--starred", "the starred items"))
+  .addHelpText(
+    "after",
+    "\nExactly one of a stream id, --feed, --label or --starred is required; there is no default to the reading list.\n",
+  )
   .addOption(
     new Option(
       "--before <time>",
@@ -559,8 +594,9 @@ program
       return seconds;
     }),
   )
-  .action(async (stream: string, options: { before?: number }) => {
-    const body: Parameters<typeof markAllAsRead>[0] = { T: await token(), s: stream };
+  .action(async (stream: string | undefined, options: MarkAllReadOptions) => {
+    const s = markedStream(stream, options);
+    const body: Parameters<typeof markAllAsRead>[0] = { T: await token(), s };
     if (options.before !== undefined) {
       // The server compares `ts` with item ids, which are the microsecond time FreshRSS added each item (its source
       // comment says nanoseconds; EntryDAO compares `id <= ts`).
