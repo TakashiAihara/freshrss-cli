@@ -11,8 +11,12 @@ const requests: URL[] = [];
 const page = (c: string | null): unknown => {
   const [kind, n] = (c ?? "empty-0").split("-");
   const next = Number(n) + 1;
+  if (kind === "stuck") {
+    // The continuation never changes, so the bound is the number of times it was asked for.
+    const asked = requests.filter((r) => r.searchParams.get("c") === "stuck-0").length;
+    return asked > 4 ? { items: [] } : { items: [{ id: "x" }], continuation: "stuck-0" };
+  }
   if (next > 4) return { items: [] };
-  if (kind === "stuck") return { items: [{ id: "x" }], continuation: "stuck-0" };
   return { items: [], continuation: `empty-${next}` };
 };
 
