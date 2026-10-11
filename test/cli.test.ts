@@ -299,30 +299,43 @@ describe("reading and writing one user's data", () => {
     );
     const otherId = other.id.slice("feed/".length);
 
-    ok(await cli(env, ["mark", "unread", ...ids]));
-    ok(await cli(env, ["mark-all-read", "--feed", feedId]));
-    expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
-    expect((await entries("--feed", otherId, "--unread")).items.length).toBe(3);
+    // Removed even when an assertion fails, so the later subs tests see one feed.
+    try {
+      ok(await cli(env, ["mark", "unread", ...ids]));
+      ok(await cli(env, ["mark-all-read", "--feed", feedId]));
+      expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
+      expect((await entries("--feed", otherId, "--unread")).items.length).toBe(FEED_ITEMS.length);
 
-    // The feed was moved to the category Other by subs edit.
-    ok(await cli(env, ["mark", "unread", ...ids]));
-    ok(await cli(env, ["mark-all-read", "--label", "Other"]));
-    expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
-    expect((await entries("--feed", otherId, "--unread")).items.length).toBe(3);
+      // The feed was moved to the category Other by subs edit.
+      ok(await cli(env, ["mark", "unread", ...ids]));
+      ok(await cli(env, ["mark-all-read", "--label", "Other"]));
+      expect((await entries("--feed", feedId, "--unread")).items).toEqual([]);
+      expect((await entries("--feed", otherId, "--unread")).items.length).toBe(FEED_ITEMS.length);
+    } finally {
+      ok(await cli(env, ["subs", "rm", other.id]));
+    }
+  });
 
-    ok(await cli(env, ["subs", "rm", other.id]));
+  test("mark-all-read --label of a name that does not exist is refused (exit 1)", async () => {
+    expect((await cli(env, ["mark-all-read", "--label", "NoSuchLabel"])).code).toBe(1);
   });
 
   test("mark-all-read --starred marks only the starred items", async () => {
     const ids = ok<{ ids: string[] }>(await cli(env, ["ids", "--feed", feedId])).ids;
+    expect(ids.length).toBe(FEED_ITEMS.length);
+    const [starred = ""] = ids;
     ok(await cli(env, ["mark", "unread", ...ids]));
-    ok(await cli(env, ["mark", "star", ids[0] ?? ""]));
+    ok(await cli(env, ["mark", "star", starred]));
 
-    ok(await cli(env, ["mark-all-read", "--starred"]));
-    expect((await entries("--feed", feedId, "--unread")).items.length).toBe(2);
-    expect((await entries("--starred", "--unread")).items).toEqual([]);
-
-    ok(await cli(env, ["mark", "unstar", ids[0] ?? ""]));
+    try {
+      ok(await cli(env, ["mark-all-read", "--starred"]));
+      expect((await entries("--feed", feedId, "--unread")).items.length).toBe(
+        FEED_ITEMS.length - 1,
+      );
+      expect((await entries("--starred", "--unread")).items).toEqual([]);
+    } finally {
+      ok(await cli(env, ["mark", "unstar", starred]));
+    }
   });
 
   test("subs export prints OPML; subs rm unsubscribes; subs import from stdin restores it", async () => {

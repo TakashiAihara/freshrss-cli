@@ -32,7 +32,7 @@ freshrss subs add https://example.net/feed.xml --category News
 freshrss entries --unread -n 50
 freshrss entries --label News --all
 freshrss mark read 'tag:google.com,2005:reader/item/0006421a5b8f3c20'
-freshrss mark-all-read user/-/label/News
+freshrss mark-all-read --label News
 freshrss subs export > subscriptions.opml
 ```
 

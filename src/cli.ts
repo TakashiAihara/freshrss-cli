@@ -579,6 +579,10 @@ program
   )
   .addOption(new Option("--label <name>", "a category or a tag, by name"))
   .addOption(new Option("--starred", "the starred items"))
+  .addHelpText(
+    "after",
+    "\nExactly one of a stream id, --feed, --label or --starred is required; there is no default to the reading list.\n",
+  )
   .addOption(
     new Option(
       "--before <time>",
