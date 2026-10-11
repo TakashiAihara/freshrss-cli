@@ -77,7 +77,7 @@ jobs:
           sha="$(git rev-parse HEAD)"
           passed="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&branch=main&status=success" --jq '.total_count')"
           if ! printf '%s\n' "$passed" | grep -Eq '^[1-9][0-9]*$'; then
-            echo "::error::$sha has no successful ci run on a push to main (got: $passed)"
+            echo "::error::$sha has no successful ci run on a push to main (got: $passed); once ci passes, run this workflow by hand with the tag"
             exit 1
           fi
 
@@ -194,6 +194,14 @@ jobs:
           TAG: ${{ needs.tag.outputs.tag }}
         run: |
           set -eu
+          # The local tag was checked in the step above; the remote one can still
+          # move until now. A moved tag would carry binaries of another commit.
+          # The peeled line (^{}) is the commit of an annotated tag.
+          remote="$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}" | sort -k2 | tail -n 1 | cut -f1)"
+          if [ "$remote" != "$(git rev-parse HEAD)" ]; then
+            echo "::error::$TAG on the remote points at ${remote:-nothing}, not the built $(git rev-parse HEAD)"
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt dist/install.sh --clobber
           else
