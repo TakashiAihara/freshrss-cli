@@ -179,7 +179,8 @@ const streamId = (options: StreamOptions): string => {
 
 const feedStreamId = (value: string): string => {
   const id = feedRef(value);
-  if (!/^feed\/\d+$/.test(id)) throw new UsageError(`--feed is a numeric feed id, not ${value}`);
+  if (!/^feed\/\d+$/.test(id))
+    throw new UsageError(`a feed is a numeric id or feed/<id>, not ${value}`);
   return id;
 };
 
@@ -351,31 +352,39 @@ subs
   });
 
 subs
-  .command("rm <feed...>")
+  .command("rm")
   .description("unsubscribe from one or more feeds")
+  .argument(
+    "<feed...>",
+    "feeds, by numeric id or as feed/<id>",
+    (value: string, previous: string[] = []) => [...previous, feedStreamId(value)],
+  )
   .action(async (feeds: string[]) => {
-    // One request per feed, in the order given: naming several feeds at once answers a refusal as soon as one of them
-    // cannot be removed, without saying which of the others it did remove.
-    const removed: string[] = [];
-    const kept: string[] = [];
-
-    for (const feed of feeds) {
-      const id = feedRef(feed);
-      try {
-        accepted(await editSubscription({ s: [id], ac: EditSubscriptionBodyAc.unsubscribe }));
-        removed.push(id);
-      } catch (e) {
-        // A refusal is an answer about this feed alone, so the rest is still tried. Anything else is not the server
-        // speaking (the request never arrived, the answer never came) and is left to the caller to report.
-        if (!(e instanceof ServerError)) throw e;
-        kept.push(`${id} (${e.message})`);
-      }
+    // Several feeds in one request stop at the first that cannot be removed, after removing some of the others. So
+    // every id is checked against the subscriptions first, and then removed one request at a time, in order.
+    const ids = [...new Set(feeds)];
+    const subscribed = new Set((await subscriptions()).map((s) => s.id));
+    const missing = ids.filter((id) => !subscribed.has(id));
+    if (missing.length > 0) {
+      throw new ServerError(`not subscribed: ${missing.join(", ")}; nothing was removed`);
     }
 
-    if (kept.length > 0) {
-      throw new ServerError(
-        `removed: ${removed.length === 0 ? "none" : removed.join(", ")}; not removed: ${kept.join(", ")}`,
-      );
+    for (const [i, id] of ids.entries()) {
+      try {
+        accepted(await editSubscription({ s: [id], ac: EditSubscriptionBodyAc.unsubscribe }));
+      } catch (e) {
+        if (i === 0) throw e;
+        const reason =
+          e instanceof Error && e.name === "TimeoutError"
+            ? "no answer in time; the server may still complete it"
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        const rest = ids.slice(i + 1);
+        throw new ServerError(
+          `removed: ${ids.slice(0, i).join(", ")}; ${id} failed: ${reason}; not attempted: ${rest.length === 0 ? "none" : rest.join(", ")}`,
+        );
+      }
     }
 
     json({ ok: true });
