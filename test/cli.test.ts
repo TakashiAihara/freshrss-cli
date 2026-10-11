@@ -86,6 +86,24 @@ describe("reading and writing one user's data", () => {
     ok(await cli(env, ["subs", "rm", added.id]));
   });
 
+  test("subs rm removes every feed it can and names the removed and the refused ones", async () => {
+    const a = ok<Sub>(await cli(env, ["subs", "add", env.feedUrl.replace("feed.xml", "rm-a.xml")]));
+    const b = ok<Sub>(await cli(env, ["subs", "add", env.feedUrl.replace("feed.xml", "rm-b.xml")]));
+
+    const r = await cli(env, ["subs", "rm", a.id, "999999", b.id]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain(`removed: ${a.id}, ${b.id}; not removed: feed/999999 (`);
+    expect((await subs()).map((s) => s.id)).toEqual([`feed/${feedId}`]);
+  });
+
+  test("subs rm of feeds that are all refused says none was removed", async () => {
+    const r = await cli(env, ["subs", "rm", "999998", "999999"]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("removed: none; not removed: feed/999998 (");
+    expect(r.stderr).toContain(", feed/999999 (");
+  });
+
   test("subs add of an unreachable URL fails with exit 1 and the server's reason", async () => {
     const r = await cli(env, ["subs", "add", "http://127.0.0.1:1/none.xml"]);
     expect(r.code).toBe(1);

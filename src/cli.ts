@@ -354,12 +354,31 @@ subs
   .command("rm <feed...>")
   .description("unsubscribe from one or more feeds")
   .action(async (feeds: string[]) => {
-    const res = await editSubscription({
-      s: feeds.map(feedRef),
-      ac: EditSubscriptionBodyAc.unsubscribe,
-    });
-    if (res.status !== 200) refusal(res);
-    ok(res);
+    // One request per feed, in the order given: naming several feeds at once answers a refusal as soon as one of them
+    // cannot be removed, without saying which of the others it did remove.
+    const removed: string[] = [];
+    const kept: string[] = [];
+
+    for (const feed of feeds) {
+      const id = feedRef(feed);
+      try {
+        accepted(await editSubscription({ s: [id], ac: EditSubscriptionBodyAc.unsubscribe }));
+        removed.push(id);
+      } catch (e) {
+        // A refusal is an answer about this feed alone, so the rest is still tried. Anything else is not the server
+        // speaking (the request never arrived, the answer never came) and is left to the caller to report.
+        if (!(e instanceof ServerError)) throw e;
+        kept.push(`${id} (${e.message})`);
+      }
+    }
+
+    if (kept.length > 0) {
+      throw new ServerError(
+        `removed: ${removed.length === 0 ? "none" : removed.join(", ")}; not removed: ${kept.join(", ")}`,
+      );
+    }
+
+    json({ ok: true });
   });
 
 subs

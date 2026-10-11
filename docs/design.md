@@ -41,7 +41,7 @@ Stream options, shared by `entries` and `ids` (at most one of the first four; de
 | `freshrss subs list`                                         | subscription/list                                                            | array of subscriptions                                                                |
 | `freshrss subs add <url> [--title t] [--category name]`      | subscription/quickadd, then subscription/edit `ac=edit` for title / category | the new subscription                                                                  |
 | `freshrss subs edit <feed id> [--title t] [--category name]` | subscription/edit `ac=edit`                                                  | `{"ok":true}`                                                                         |
-| `freshrss subs rm <feed id>...`                              | subscription/edit `ac=unsubscribe`                                           | `{"ok":true}`                                                                         |
+| `freshrss subs rm <feed id>...`                              | subscription/edit `ac=unsubscribe`, one request per feed                     | `{"ok":true}`                                                                         |
 | `freshrss subs export`                                       | subscription/export                                                          | OPML on stdout                                                                        |
 | `freshrss subs import <file or ->`                           | subscription/import                                                          | `{"ok":true}`                                                                         |
 | `freshrss tags list`                                         | tag/list                                                                     | array of tags                                                                         |
@@ -59,6 +59,7 @@ Item ids are accepted in both forms the server gives: decimal (`ids`) and `tag:g
 
 - `mark-all-read --before` bounds the time FreshRSS added each item (its id), not the publication date. A time at or before 1970 is refused: the server reads `ts=0` as no bound.
 - `subs add` uses quickadd because it answers with the new feed's id: the server may store another URL than the one given (a discovered feed, a redirect), and another client may subscribe at the same time. A URL that is already subscribed is refused by the server and exits 1 with its reason.
+- `subs rm` sends one request per feed: with several feeds in one request the server stops at the first it cannot remove, after removing some of the others. A refused feed does not stop the rest; if any was refused, it exits 1 with `removed: <ids or none>; not removed: <id> (<reason>), ...` on stderr.
 - Not used by any command: `subscription/edit ac=subscribe` (quickadd covers it and returns the id) and the `xt` exclude filter (`--unread` / `--read` cover it).
 
 ## Exit codes
