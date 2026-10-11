@@ -181,7 +181,8 @@ const feedStreamId = (value: string): string => {
   const id = feedRef(value);
   if (!/^feed\/\d+$/.test(id))
     throw new UsageError(`a feed is a numeric id or feed/<id>, not ${value}`);
-  return id;
+  // The server reads the id as a number, so `05` is feed 5; one spelling keeps duplicates and messages apart.
+  return id.replace(/^feed\/0+(?=\d)/, "feed/");
 };
 
 /** `--starred` already selects the starred stream, so the read state is what `it=` narrows. */
@@ -360,20 +361,16 @@ subs
     (value: string, previous: string[] = []) => [...previous, feedStreamId(value)],
   )
   .action(async (feeds: string[]) => {
-    // Several feeds in one request stop at the first that cannot be removed, after removing some of the others. So
-    // every id is checked against the subscriptions first, and then removed one request at a time, in order.
+    // Several feeds in one request are worked from the last, and stop at the first that cannot be removed after
+    // removing the ones behind it. So they are removed one request at a time, in the order given, and the first
+    // failure stops the rest. The subscription list is no guard: it leaves out hidden feeds, which can be removed.
     const ids = [...new Set(feeds)];
-    const subscribed = new Set((await subscriptions()).map((s) => s.id));
-    const missing = ids.filter((id) => !subscribed.has(id));
-    if (missing.length > 0) {
-      throw new ServerError(`not subscribed: ${missing.join(", ")}; nothing was removed`);
-    }
 
     for (const [i, id] of ids.entries()) {
       try {
         accepted(await editSubscription({ s: [id], ac: EditSubscriptionBodyAc.unsubscribe }));
       } catch (e) {
-        if (i === 0) throw e;
+        if (ids.length === 1) throw e;
         const reason =
           e instanceof Error && e.name === "TimeoutError"
             ? "no answer in time; the server may still complete it"
@@ -382,7 +379,7 @@ subs
               : String(e);
         const rest = ids.slice(i + 1);
         throw new ServerError(
-          `removed: ${ids.slice(0, i).join(", ")}; ${id} failed: ${reason}; not attempted: ${rest.length === 0 ? "none" : rest.join(", ")}`,
+          `removed: ${i === 0 ? "none" : ids.slice(0, i).join(", ")}; ${id} failed: ${reason}; not attempted: ${rest.length === 0 ? "none" : rest.join(", ")}`,
         );
       }
     }
