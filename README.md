@@ -94,11 +94,13 @@ freshrss entries --unread --since "$(date -u +%F)" --all | jq -r '.items[].title
 freshrss ids --feed 12 --unread --all | jq -r '.ids[]' | xargs -r freshrss mark star
 ```
 
-| exit code | meaning                                                                         |
-| --------- | ------------------------------------------------------------------------------- |
-| 0         | success                                                                         |
-| 1         | the server refused or failed; its message is on stderr                          |
-| 2         | usage or configuration error (missing URL / user / API password, bad arguments) |
+| exit code | meaning                                                                           |
+| --------- | --------------------------------------------------------------------------------- |
+| 0         | success                                                                           |
+| 1         | the server refused or failed, or did not answer in time; the message is on stderr |
+| 2         | usage or configuration error (missing URL / user / API password, bad arguments)   |
+
+A request times out after 60 s (630 s for `subs add` and `subs import`, which make the server fetch feeds). A timeout only ends the wait: the server may still complete the write, so read the state back before retrying.
 
 Writes are checked: a write the server does not answer with `OK` exits 1 (`subs add` instead checks quickadd's answer for the new feed), and `subs rm` with several feeds names which were removed, which failed and which were not attempted.
 
