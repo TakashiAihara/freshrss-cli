@@ -8,7 +8,7 @@ A single self-contained binary, no runtime to install. Ships for `linux/amd64`, 
 
 ## Status
 
-Pre-release (`v0.1.0-rc.N`). Every push to `main` that passes CI is released, so the latest release is always what is on `main`. The command surface below is complete for what the API offers; flags may still change before `v0.1.0`.
+Release candidates (`v0.1.0-rc.N`). Every push to `main` that passes CI is released, so the latest release tracks `main`. The command surface below is complete for what the API offers; flags may still change before `v0.1.0`.
 
 ## Install
 
@@ -54,7 +54,7 @@ export FRESHRSS_API_PASSWORD=...
 ```
 
 - Flags go before the command: `freshrss --url ... subs list`.
-- The API password is read only from the environment, so it never shows up in the process list or shell history.
+- The API password is read only from the environment, never from a flag, so it does not show up in the process list. Load it from a secret store or a file rather than typing it, or it lands in your shell history.
 - Each run logs in afresh. Nothing is cached on disk.
 
 ## Use
@@ -84,10 +84,10 @@ Every command, option and output shape is listed in [docs/design.md](docs/design
 
 ## Output
 
-Output is the same whether stdout is a terminal or a pipe: JSON, one document per run.
+Output is the same whether stdout is a terminal or a pipe: one JSON document per run (OPML for `subs export`).
 
 ```bash
-# titles of today's unread items
+# titles of unread items published, added or changed since midnight UTC
 freshrss entries --unread --since "$(date -u +%F)" --all | jq -r '.items[].title'
 
 # star everything unread in one feed
@@ -100,7 +100,7 @@ freshrss ids --feed 12 --unread --all | jq -r '.ids[]' | xargs -r freshrss mark 
 | 1         | the server refused or failed; its message is on stderr                          |
 | 2         | usage or configuration error (missing URL / user / API password, bad arguments) |
 
-Writes are checked: a write the server does not answer with `OK` exits 1, and `subs rm` with several feeds names which were removed, which failed and which were not attempted.
+Writes are checked: a write the server does not answer with `OK` exits 1 (`subs add` instead checks quickadd's answer for the new feed), and `subs rm` with several feeds names which were removed, which failed and which were not attempted.
 
 ## Why the API and not FreshRSS's `cli/*.php`
 
